@@ -1,0 +1,24 @@
+[package]
+name = "typed_sqlx_client"
+version = "0.1.0"
+edition = "2024"
+authors = ["Rollp0x <zkrollp@gmail.com>"]
+description = "Type-safe, extensible Rust library for managing multiple SQL databases and tables with sqlx."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Rollp0x/typed_sqlx_client"
+homepage = "https://github.com/Rollp0x/typed_sqlx_client"
+documentation = "https://docs.rs/typed_sqlx_client"
+readme = "README.md"
+keywords = ["sqlx", "database", "actix-web", "type-safe", "orm"]
+categories = ["database", "web-programming", "asynchronous"]
+
+
+[dependencies]
+async-trait = "0.1.88"
+sqlx = {version = "0.8.0", default-features = false}
+
+[dev-dependencies]
+actix-web = "4"
+async-trait = "0.1.88"
+sqlx = {version = "0.8.0", features = ["mysql"]}
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

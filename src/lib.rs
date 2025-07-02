@@ -33,9 +33,33 @@
 //!     // ... other methods ...
 //! }
 //! ```
+//!
+//! ## Macro: select_only_query
+//!
+//! This macro implements the `SelectOnlyQuery` trait for all `SqlTable` types for a given database backend.
+//! It only allows SELECT queries for safety, and returns results as a vector of JSON objects.
+//! Usage: `select_only_query!(sqlx::mysql::MySql);` (or Postgres/Sqlite)
+//!
+//! **Note:** For unsupported or unrecognized column types, the value will be `null` in the resulting JSON object.
 
+pub mod macros;
 pub mod tables;
 pub mod traits;
 
 pub use tables::*;
 pub use traits::*;
+
+#[cfg(feature = "mysql")]
+select_only_query!(sqlx::mysql::MySql);
+
+#[cfg(feature = "postgres")]
+select_only_query!(sqlx::postgres::Postgres);
+
+#[cfg(feature = "sqlite")]
+select_only_query!(sqlx::sqlite::Sqlite);
+
+#[cfg(any(feature = "mysql", feature = "postgres", feature = "sqlite"))]
+pub mod private {
+    pub use serde_json;
+    pub use sqlx;
+}

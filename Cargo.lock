@@ -1930,7 +1930,7 @@ dependencies = [
 
 [[package]]
 name = "typed_sqlx_client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "actix-web",
  "async-trait",

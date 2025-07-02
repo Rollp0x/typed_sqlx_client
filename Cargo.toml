@@ -1,6 +1,6 @@
 [package]
 name = "typed_sqlx_client"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Rollp0x <zkrollp@gmail.com>"]
 description = "Type-safe, extensible Rust library for managing multiple SQL databases and tables with sqlx."

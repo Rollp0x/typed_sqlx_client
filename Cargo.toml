@@ -13,19 +13,16 @@ keywords = ["sqlx", "database", "actix-web", "type-safe", "orm"]
 categories = ["database", "web-programming", "asynchronous"]
 
 [features]
-mysql = ["sqlx/mysql","dep:serde_json"]
-postgres = ["sqlx/postgres","dep:serde_json"]
-sqlite = ["sqlx/sqlite","dep:serde_json"]
-full = ["mysql","postgres","sqlite"]
+full = []
 
 
 [dependencies]
 async-trait = "0.1.88"
 sqlx = {version = "0.8.0", default-features = false}
-serde_json = {version = "1.0", optional = true}
+serde_json = {version = "1.0"}
 
 [dev-dependencies]
 actix-web = "4"
 async-trait = "0.1.88"
-sqlx = {version = "0.8.0", features = ["mysql"]}
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+sqlx = {version = "0.8.0", default-features = false, features=["mysql","sqlite","postgres"]}

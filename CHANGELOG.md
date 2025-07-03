@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2025-07-03
+### Added
+- Feature: `CrudOpsRef` derive macro for automatic CRUD implementation on entity structs.
+- Feature: Automatic detection of primary key via `#[crud(primary_key)]` or fallback to first field.
+- Feature: All field types are automatically checked for required `sqlx` traits.
+- Feature: Batch insert (`insert_batch`) support.
+
+### Removed
+- Breaking: The old `CrudOps` trait is removed; only `CrudOpsRef` is needed for reference-based CRUD.
+
+### Limitation
+- `CrudOpsRef` currently supports only MySQL and SQLite. **Postgres is not supported** due to parameter syntax differences.
+
 ## [0.1.1] - 2025-07-02
 ### Added
 - Feature: Macro `select_only_query!` for all `SqlTable` types, supporting MySQL/Postgres/Sqlite with type-preserving JSON output.

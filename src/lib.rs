@@ -7,6 +7,26 @@
 //! - Enables per-table trait implementations (e.g., `CrudOps`, `CrudOpsRef`) for flexible, type-driven database access.
 //! - Designed for projects needing clear separation and type safety across many databases and tables.
 //!
+//! ## Derive Macro Support
+//!
+//! The `CrudOpsRef` derive macro allows you to quickly implement CRUD traits for your table structs.
+//!
+//! **Limitations:**  
+//! `CrudOpsRef` currently only supports MySQL and SQLite.  
+//! **Postgres is not supported** due to differences in SQL parameter placeholder syntax.
+//!
+//! ## Example
+//!
+//! ```rust
+//! #[derive(sqlx::FromRow, CrudOpsRef)]
+//! #[crud(table = "users")]
+//! struct User {
+//!     #[crud(primary_key)]
+//!     id: i64,
+//!     name: String,
+//!     email: String,
+//! }
+//! ```
 
 pub mod tables;
 pub mod traits;
@@ -14,6 +34,5 @@ pub mod traits;
 pub use tables::*;
 pub use traits::*;
 
-// Re-export the ToRow derive macro
-// The ToRow trait is already re-exported via `pub use traits::*;`
-pub use typed_sqlx_client_macros::ToRow;
+// Re-export the CrudOpsRef derive macro
+pub use typed_sqlx_client_macros::CrudOpsRef;

@@ -1,6 +1,6 @@
 [package]
 name = "typed_sqlx_client"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 authors = ["Rollp0x <zkrollp@gmail.com>"]
 description = "Type-safe, extensible Rust library for managing multiple SQL databases and tables with sqlx."
@@ -26,4 +26,5 @@ typed_sqlx_client_macros = { path = "./typed_sqlx_client_macros" }
 actix-web = "4"
 async-trait = "0.1.88"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-sqlx = {version = "0.8.0", default-features = false, features=["mysql","sqlite","postgres"]}
+sqlx = {version = "0.8.0", features=["mysql","sqlite","postgres","macros"]}
+ethereum-mysql = "3.0.0"

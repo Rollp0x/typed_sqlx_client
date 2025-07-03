@@ -4,11 +4,21 @@ A type-safe, extensible Rust library for managing multiple SQL databases and tab
 
 - Provides generic, type-safe wrappers (`SqlPool`, `SqlTable`) for sqlx connection pools and table handles.
 - Supports storing multiple pools (for different databases) in frameworks like actix-web.
-- Enables per-table trait implementations (e.g., `CrudOps`, `CrudOpsRef`, `SelectOnlyQuery`) for flexible, type-driven database access.
+- **Automatic CRUD implementation:** Use the `#[derive(CrudOpsRef)]` macro to generate full CRUD for your entity structs.
+- Enables per-table trait implementations (e.g., `CrudOpsRef`, `SelectOnlyQuery`) for flexible, type-driven database access.
 - Designed for projects needing clear separation and type safety across many databases and tables.
 
 ## Version
-Current: **0.1.1**
+Current: **0.2.0**
+
+## What's New in 0.2.0
+
+- **`CrudOpsRef` derive macro:** Automatically implements CRUD operations for your entity structs, including `insert`, `update_by_id`, `delete_by_id`, `get_by_id`, and `insert_batch`.
+- **Automatic trait bounds:** All field types are automatically checked for the necessary `sqlx` traits.
+- **Primary key detection:** Supports `#[crud(primary_key)]` attribute, or defaults to the first field.
+- **Batch insert:** `insert_batch` provided out of the box.
+- **English documentation and comments.**
+- **Limitation:** `CrudOpsRef` currently supports only MySQL and SQLite. **Postgres is not supported** due to parameter syntax differences.
 
 ## Features
 - Type-safe pool and table wrappers for sqlx
@@ -16,6 +26,7 @@ Current: **0.1.1**
 - Per-table trait implementations for CRUD and custom operations
 - Supports multiple databases and tables in a single project
 - Macro for read-only SELECT queries with type-preserving JSON output
+- Automatic CRUD derive macro for entity structs
 
 ## Example Usage
 ```rust
@@ -34,18 +45,18 @@ async fn main() {
 }
 ```
 
-## Example: Implementing CRUD Trait for a Table-Entity Binding
+## Example: Automatic CRUD Derive Macro
 ```rust
 use typed_sqlx_client::{CrudOpsRef, SqlTable};
-use sqlx::MySql;
-struct MainDb;
-struct UserEntity { id: i32, name: String }
+use sqlx::FromRow;
 
-#[async_trait::async_trait]
-impl CrudOpsRef<i32, UserEntity> for SqlTable<MySql, MainDb, UserEntity> {
-    type Error = String;
-    async fn insert(&self, entity: &UserEntity) -> Result<(), Self::Error> { Ok(()) }
-    // ... other methods ...
+#[derive(CrudOpsRef, FromRow)]
+#[crud(table = "users")]
+struct UserEntity {
+    #[crud(primary_key)]
+    id: i32,
+    name: String,
+    email: String,
 }
 ```
 
@@ -60,7 +71,16 @@ use typed_sqlx_client::select_only_query;
 // select_only_query!(sqlx::mysql::MySql);
 
 // Query results preserve int/float/bool types in JSON; unsupported types are null.
-```
+
+
+
+
+
+
+
+
+
+MIT OR Apache-2.0## License- Unsupported or unrecognized column types will be `null` in the JSON result.- Text/JSON columns are parsed as JSON if possible, otherwise as strings.- Integer, float, and boolean columns are preserved as native JSON types in the result.## Type Preservation``````
 
 ## Type Preservation
 - Integer, float, and boolean columns are preserved as native JSON types in the result.

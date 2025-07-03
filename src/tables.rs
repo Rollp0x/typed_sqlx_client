@@ -1,5 +1,4 @@
 use crate::traits::SelectOnlyQuery;
-use async_trait::async_trait;
 use sqlx::{
     Column, ColumnIndex, Decode, Executor, IntoArguments, Pool, Row, Type, database::Database,
 };
@@ -67,7 +66,6 @@ impl<P: Database, DB, Table> Deref for SqlTable<P, DB, Table> {
     }
 }
 
-#[async_trait]
 impl<P: Database, DB, Table> SelectOnlyQuery for SqlTable<P, DB, Table>
 where
     DB: Sync + Send,

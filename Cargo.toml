@@ -20,6 +20,7 @@ full = []
 async-trait = "0.1.88"
 sqlx = {version = "0.8.0", default-features = false}
 serde_json = {version = "1.0"}
+typed_sqlx_client_macros = { path = "./typed_sqlx_client_macros" }
 
 [dev-dependencies]
 actix-web = "4"

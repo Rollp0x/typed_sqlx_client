@@ -14,4 +14,6 @@ pub mod traits;
 pub use tables::*;
 pub use traits::*;
 
-
+// Re-export the ToRow derive macro
+// The ToRow trait is already re-exported via `pub use traits::*;`
+pub use typed_sqlx_client_macros::ToRow;

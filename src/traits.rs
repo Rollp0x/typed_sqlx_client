@@ -1,38 +1,49 @@
 use async_trait::async_trait;
+
 /// Trait for async CRUD operations using references to entities.
 /// Suitable for large entities or when avoiding unnecessary copies.
 #[async_trait]
-pub trait CrudOpsRef<ID, Entity> {
+pub trait CrudOpsRef {
+    /// The ID type for entity identification
+    type ID;
+    /// The Entity type for CRUD operations
+    type Entity;
+    /// The error type for operations
     type Error;
 
     /// Insert a single entity by reference.
-    async fn insert(&self, entity: &Entity) -> Result<(), Self::Error>;
+    async fn insert(&self, entity: &Self::Entity) -> Result<(), Self::Error>;
     /// Insert a batch of entities by reference.
-    async fn insert_batch(&self, entities: &[Entity]) -> Result<(), Self::Error>;
+    async fn insert_batch(&self, entities: &[Self::Entity]) -> Result<(), Self::Error>;
     /// Get an entity by id, returns owned entity if found.
-    async fn get_by_id(&self, id: &ID) -> Result<Option<Entity>, Self::Error>;
+    async fn get_by_id(&self, id: &Self::ID) -> Result<Option<Self::Entity>, Self::Error>;
     /// Update an entity by id, using a reference to the new entity data.
-    async fn update_by_id(&self, id: &ID, entity: &Entity) -> Result<(), Self::Error>;
+    async fn update_by_id(&self, id: &Self::ID, entity: &Self::Entity) -> Result<(), Self::Error>;
     /// Delete an entity by id.
-    async fn delete_by_id(&self, id: &ID) -> Result<(), Self::Error>;
+    async fn delete_by_id(&self, id: &Self::ID) -> Result<(), Self::Error>;
 }
 
 /// Trait for async CRUD operations using owned entities.
 /// Suitable for small entities or when ownership transfer is desired.
 #[async_trait]
-pub trait CrudOps<ID, Entity> {
+pub trait CrudOps {
+    /// The ID type for entity identification
+    type ID;
+    /// The Entity type for CRUD operations
+    type Entity;
+    /// The error type for operations
     type Error;
 
     /// Insert a single entity by value (ownership is moved).
-    async fn insert(&self, entity: Entity) -> Result<(), Self::Error>;
+    async fn insert(&self, entity: Self::Entity) -> Result<(), Self::Error>;
     /// Insert a batch of entities by value (ownership is moved).
-    async fn insert_batch(&self, entities: Vec<Entity>) -> Result<(), Self::Error>;
+    async fn insert_batch(&self, entities: Vec<Self::Entity>) -> Result<(), Self::Error>;
     /// Get an entity by id, returns owned entity if found.
-    async fn get_by_id(&self, id: &ID) -> Result<Option<Entity>, Self::Error>;
+    async fn get_by_id(&self, id: &Self::ID) -> Result<Option<Self::Entity>, Self::Error>;
     /// Update an entity by id, using an owned entity (ownership is moved).
-    async fn update_by_id(&self, id: &ID, entity: Entity) -> Result<(), Self::Error>;
+    async fn update_by_id(&self, id: &Self::ID, entity: Self::Entity) -> Result<(), Self::Error>;
     /// Delete an entity by id.
-    async fn delete_by_id(&self, id: &ID) -> Result<(), Self::Error>;
+    async fn delete_by_id(&self, id: &Self::ID) -> Result<(), Self::Error>;
 }
 
 /// Trait for executing only safe, read-only SQL queries (SELECT) and returning a custom result type.
@@ -52,4 +63,19 @@ pub trait SelectOnlyQuery {
     /// # Arguments
     /// * `query` - The SQL string to execute. Only SELECT statements are allowed.
     async fn execute_select_only(&self, query: &str) -> Result<Self::Output, Self::MError>;
+}
+
+
+/// Trait for converting a struct to database row representation.
+/// This trait provides metadata about the table structure and field mappings.
+pub trait ToRow {
+    /// Table name for this entity
+    const TABLE_NAME: &'static str;
+    
+    /// Primary key field name in the database
+    const PRIMARY_KEY_FIELD: &'static str;
+    
+    /// Get field name to column name mappings
+    /// Returns a vector of (field_name, column_name) pairs
+    fn field_column_mappings() -> Vec<(&'static str, &'static str)>;
 }

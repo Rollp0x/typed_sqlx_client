@@ -1937,6 +1937,16 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "typed_sqlx_client_macros",
+]
+
+[[package]]
+name = "typed_sqlx_client_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

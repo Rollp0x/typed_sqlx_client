@@ -1,5 +1,5 @@
-use actix_web::{App, HttpResponse, HttpServer, Responder, web};
-use sqlx::{MySql, mysql::MySqlPoolOptions};
+use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use sqlx::{mysql::MySqlPoolOptions, MySql};
 use typed_sqlx_client::SqlPool;
 
 // Marker types for different databases and tables

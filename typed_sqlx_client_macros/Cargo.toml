@@ -1,7 +1,15 @@
 [package]
 name = "typed_sqlx_client_macros"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+authors = ["Rollp0x <zkrollp@gmail.com>"]
+description = "Derive macros for typed_sqlx_client - automatic CRUD trait implementations"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Rollp0x/typed_sqlx_client"
+homepage = "https://github.com/Rollp0x/typed_sqlx_client"
+documentation = "https://docs.rs/typed_sqlx_client_macros"
+keywords = ["sqlx", "database", "macros", "derive", "crud"]
+categories = ["database", "development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

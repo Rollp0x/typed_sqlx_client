@@ -1,4 +1,4 @@
-use ethereum_mysql::{SqlAddress, sqladdress};
+use ethereum_mysql::{sqladdress, SqlAddress};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, MySqlPool};
 use typed_sqlx_client::{CrudOpsRef, SelectOnlyQuery, SqlPool};

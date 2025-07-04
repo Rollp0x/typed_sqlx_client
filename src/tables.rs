@@ -1,6 +1,6 @@
 use crate::traits::SelectOnlyQuery;
 use sqlx::{
-    Column, ColumnIndex, Decode, Executor, IntoArguments, Pool, Row, Type, database::Database,
+    database::Database, Column, ColumnIndex, Decode, Executor, IntoArguments, Pool, Row, Type,
 };
 use std::marker::PhantomData;
 use std::ops::Deref;

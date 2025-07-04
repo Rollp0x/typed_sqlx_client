@@ -1,7 +1,7 @@
 [package]
 name = "typed_sqlx_client"
 version = "0.2.0"
-edition = "2024"
+edition = "2021"
 authors = ["Rollp0x <zkrollp@gmail.com>"]
 description = "Type-safe, extensible Rust library for managing multiple SQL databases and tables with sqlx."
 license = "MIT OR Apache-2.0"
@@ -15,8 +15,8 @@ categories = ["database", "web-programming", "asynchronous"]
 
 [dependencies]
 sqlx = { version = "0.8.0", default-features = false }
-serde_json = {version = "1.0"}
-typed_sqlx_client_macros = { path = "./typed_sqlx_client_macros" }
+serde_json = {version = "1.0.0"}
+typed_sqlx_client_macros = { version = "0.2.0", path = "./typed_sqlx_client_macros" }
 
 [dev-dependencies]
 actix-web = "4"

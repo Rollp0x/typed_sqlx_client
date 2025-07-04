@@ -1,11 +1,11 @@
-use typed_sqlx_client::{CrudOpsRef, SqlPool, SelectOnlyQuery};
-use sqlx::{SqlitePool, FromRow};
+use ethereum_mysql::{SqlAddress, sqladdress};
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, SqlitePool};
+use typed_sqlx_client::{CrudOpsRef, SelectOnlyQuery, SqlPool};
 use uuid::Uuid;
-use ethereum_mysql::{SqlAddress,sqladdress};
-use serde::{Serialize, Deserialize};
 
 #[derive(FromRow, CrudOpsRef, Clone, Debug, Serialize, Deserialize)]
-#[crud(table = "user_infos",db = "sqlite")]
+#[crud(table = "user_infos", db = "sqlite")]
 pub struct UserInfo {
     #[crud(primary_key)]
     pub id: Option<Uuid>,
@@ -27,7 +27,10 @@ async fn main() {
     let pool = SqlPool::from_pool::<TestDB>(pool);
     let user_info_table = pool.get_table::<UserInfo>();
     // Drop table if exists to ensure a fresh table each time
-    let _ = sqlx::query("DROP TABLE IF EXISTS user_infos").execute(user_info_table.get_pool()).await.unwrap();
+    let _ = sqlx::query("DROP TABLE IF EXISTS user_infos")
+        .execute(user_info_table.get_pool())
+        .await
+        .unwrap();
     let _ = sqlx::query(
         "CREATE TABLE IF NOT EXISTS user_infos (
             id BINARY(16) PRIMARY KEY,
@@ -36,8 +39,11 @@ async fn main() {
             age INT,
             is_active BOOLEAN NOT NULL,
             address VARCHAR(42) NOT NULL
-        )"
-    ).execute(user_info_table.get_pool()).await.unwrap();
+        )",
+    )
+    .execute(user_info_table.get_pool())
+    .await
+    .unwrap();
 
     let user_info = UserInfo {
         id: Some(Uuid::new_v4()),
@@ -54,13 +60,22 @@ async fn main() {
     let into_of_value = query.into_iter().next().unwrap();
     if let Some(id_value) = into_of_value.get("id") {
         if let Some(arr) = id_value.as_array() {
-            let bytes: Vec<u8> = arr.iter().filter_map(|v| v.as_u64().map(|n| n as u8)).collect();
+            let bytes: Vec<u8> = arr
+                .iter()
+                .filter_map(|v| v.as_u64().map(|n| n as u8))
+                .collect();
             if bytes.len() == 16 {
                 let uuid = uuid::Uuid::from_slice(&bytes).unwrap();
                 let mut user_info = user_info_table.get_by_id(&uuid).await.unwrap().unwrap();
-                assert!(user_info.age == Some(30), "Expected user_info.age to be Some(30)");
+                assert!(
+                    user_info.age == Some(30),
+                    "Expected user_info.age to be Some(30)"
+                );
                 user_info.age = Some(45);
-                user_info_table.update_by_id(&uuid,&user_info).await.unwrap();
+                user_info_table
+                    .update_by_id(&uuid, &user_info)
+                    .await
+                    .unwrap();
                 user_info = user_info_table.get_by_id(&uuid).await.unwrap().unwrap();
                 assert_eq!(user_info.age, Some(45), "Expected age to be updated to 45");
                 user_info_table.delete_by_id(&uuid).await.unwrap();

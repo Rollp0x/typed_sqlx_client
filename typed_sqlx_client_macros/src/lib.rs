@@ -2,24 +2,187 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Meta};
 
-/// Derive macro for CrudOpsRef trait
+/// Derive macro for automatically implementing the CrudOpsRef trait.
 ///
-/// # Attributes
-/// - `#[crud(table = "table_name")]` - Specify table name (defaults to struct name)
-/// - `#[crud(primary_key)]` - Mark field as primary key
-/// - `#[crud(rename = "column_name")]` - Rename field to different column name
+/// This macro is the cornerstone of `typed_sqlx_client` v0.2.0+, replacing the old `CrudOps` trait
+/// with a more powerful and flexible derive-based approach. It generates a complete implementation
+/// of the `CrudOpsRef` trait for structs that implement `sqlx::FromRow`, providing automatic
+/// CRUD operations with support for field renaming, custom table names, and multiple database backends.
 ///
-/// # Example
+/// ## 🚀 What's New in v0.2.0
+/// - **Replaced** the old `CrudOps` trait entirely
+/// - **Enhanced** field mapping with `#[crud(rename = "...")]`
+/// - **Improved** primary key detection and handling (including `Option<T>` unwrapping)
+/// - **Unified** API across MySQL, PostgreSQL, and SQLite
+/// - **Better** error messages and IDE support
+///
+/// ## 📋 Requirements
+/// - The struct must implement `sqlx::FromRow` (usually via `#[derive(FromRow)]`)
+/// - All field types must implement `sqlx::Encode` and `sqlx::Type` for the target database
+/// - The struct must have at least one field
+///
+/// ## 🗄️ Supported Databases
+/// | Database   | Identifier | Parameter Style | Status |
+/// |------------|------------|----------------|---------|
+/// | MySQL      | `db = "mysql"` | `?` placeholders | ✅ Stable |
+/// | PostgreSQL | `db = "postgres"` | `$1, $2, ...` placeholders | ✅ Stable |
+/// | SQLite     | `db = "sqlite"` | `?` placeholders | ✅ Stable |
+///
+/// ## 🏷️ Attributes Reference
+///
+/// ### Struct-level Attributes
 /// ```rust
-/// #[derive(CrudOpsRef, sqlx::FromRow)]
-/// #[crud(table = "users")]
+/// #[crud(table = "table_name")]          // Specify table name (defaults to struct name)
+/// #[crud(db = "database_type")]           // Specify database type (mysql/postgres/sqlite)
+/// #[crud(table = "users", db = "postgres")]  // Combined syntax
+/// ```
+///
+/// ### Field-level Attributes
+/// ```rust
+/// #[crud(primary_key)]                   // Mark field as primary key (defaults to first field)
+/// #[crud(rename = "column_name")]         // Map field to different column name
+/// ```
+///
+/// ## 🔧 Generated Operations
+/// The macro implements these methods on `SqlTable<P, DB, YourStruct>`:
+/// - `insert(&self, entity: &T) -> Result<(), sqlx::Error>`
+/// - `insert_batch(&self, entities: &[T]) -> Result<(), sqlx::Error>`
+/// - `get_by_id(&self, id: &ID) -> Result<Option<T>, sqlx::Error>`
+/// - `update_by_id(&self, id: &ID, entity: &T) -> Result<(), sqlx::Error>`
+/// - `delete_by_id(&self, id: &ID) -> Result<(), sqlx::Error>`
+///
+/// ## 📚 Usage Examples
+///
+/// ### Basic Entity
+/// ```rust
+/// use typed_sqlx_client::{CrudOpsRef, SqlPool};
+/// use sqlx::FromRow;
+///
+/// #[derive(FromRow, CrudOpsRef, Debug)]
+/// #[crud(table = "users", db = "postgres")]
 /// struct User {
 ///     #[crud(primary_key)]
-///     id: i64,
-///     #[crud(rename = "user_name")]
+///     id: Option<i64>,  // Option<T> is automatically unwrapped for key type
 ///     name: String,
 ///     email: String,
 /// }
+///
+/// struct MainDB;
+///
+/// # async fn example() -> Result<(), sqlx::Error> {
+/// let pool = SqlPool::from_pool::<MainDB>(pg_pool);
+/// let user_table = pool.get_table::<User>();
+///
+/// // All CRUD operations are now available
+/// let user = User { id: None, name: "Alice".to_string(), email: "alice@example.com".to_string() };
+/// user_table.insert(&user).await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// ### Advanced Field Mapping
+/// ```rust
+/// use uuid::Uuid;
+///
+/// #[derive(FromRow, CrudOpsRef)]
+/// #[crud(table = "user_profiles", db = "postgres")]
+/// struct UserProfile {
+///     #[crud(primary_key)]
+///     id: Option<Uuid>,
+///     
+///     #[crud(rename = "full_name")]        // Database column: full_name
+///     name: String,                        // Rust field: name
+///     
+///     #[crud(rename = "email_address")]    // Database column: email_address  
+///     email: String,                       // Rust field: email
+///     
+///     #[crud(rename = "birth_date")]       // Database column: birth_date
+///     birthday: Option<chrono::NaiveDate>, // Rust field: birthday
+///     
+///     // Field without rename uses the same name
+///     is_active: bool,
+/// }
+/// ```
+///
+/// ### Multi-Database Support
+/// ```rust
+/// // Same struct, different databases
+/// #[derive(FromRow, CrudOpsRef)]
+/// #[crud(table = "products", db = "mysql")]
+/// struct MySQLProduct {
+///     #[crud(primary_key)]
+///     id: Option<i64>,
+///     name: String,
+///     price: f64,
+/// }
+///
+/// #[derive(FromRow, CrudOpsRef)]
+/// #[crud(table = "products", db = "sqlite")]
+/// struct SQLiteProduct {
+///     #[crud(primary_key)]
+///     id: Option<i64>,
+///     name: String,
+///     price: f64,
+/// }
+/// ```
+///
+/// ### Complex Types and Custom Fields
+/// ```rust
+/// use serde_json::Value;
+///
+/// #[derive(FromRow, CrudOpsRef)]
+/// #[crud(table = "advanced_users", db = "postgres")]
+/// struct AdvancedUser {
+///     #[crud(primary_key)]
+///     id: Option<Uuid>,
+///     
+///     name: String,
+///     
+///     #[crud(rename = "metadata")]
+///     user_metadata: Value,  // JSON field
+///     
+///     #[crud(rename = "tags")]
+///     user_tags: Vec<String>,  // Array field (PostgreSQL)
+///     
+///     created_at: chrono::DateTime<chrono::Utc>,
+///     updated_at: Option<chrono::DateTime<chrono::Utc>>,
+/// }
+/// ```
+///
+/// ## 🔑 Primary Key Handling
+/// The macro intelligently handles primary keys:
+///
+/// 1. **Explicit marking**: Use `#[crud(primary_key)]` on any field
+/// 2. **Automatic detection**: If no field is marked, the first field is used
+/// 3. **Option unwrapping**: `Option<T>` fields are automatically unwrapped to `T` for key operations
+/// 4. **Type safety**: The key type is properly extracted for all CRUD operations
+///
+/// ```rust
+/// // These are equivalent for key operations:
+/// struct User1 { id: i64, name: String }      // Key type: i64
+/// struct User2 { id: Option<i64>, name: String }  // Key type: i64 (unwrapped)
+/// ```
+///
+/// ## ⚠️ Error Handling
+/// All generated methods return `Result<T, sqlx::Error>`. Common error scenarios:
+/// - **Constraint violations**: Unique key, foreign key, check constraints
+/// - **Connection errors**: Database unavailable, timeout
+/// - **Type conversion errors**: Incompatible Rust ↔ SQL type mapping
+/// - **SQL syntax errors**: Invalid table/column names
+///
+/// ## 🔧 Troubleshooting
+///
+/// ### Common Issues:
+/// 1. **"trait bound not satisfied"**: Ensure your types implement `sqlx::Encode + sqlx::Type`
+/// 2. **"column not found"**: Check `#[crud(rename = "...")]` matches database schema
+/// 3. **"table not found"**: Verify `#[crud(table = "...")]` matches actual table name
+/// 4. **Type conversion errors**: Ensure Rust types match database column types
+///
+/// ### Debugging Tips:
+/// ```rust
+/// // Use cargo expand to see generated code
+/// // cargo install cargo-expand
+/// // cargo expand --lib
 /// ```
 #[proc_macro_derive(CrudOpsRef, attributes(crud))]
 pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
@@ -62,7 +225,10 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
             let pk_ty = extract_option_inner_type_deep(&typ);
             (field, pk_ty.clone())
         } else {
-            let first_field = fields.iter().next().expect("Struct must have at least one field");
+            let first_field = fields
+                .iter()
+                .next()
+                .expect("Struct must have at least one field");
             let field_name = first_field.ident.as_ref().unwrap().to_string();
             let field_type = &first_field.ty;
             let pk_ty = extract_option_inner_type_deep(field_type);
@@ -71,9 +237,10 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
 
     // Generate field idents, field names, and placeholders
     let field_idents: Vec<_> = fields.iter().map(|f| f.ident.as_ref().unwrap()).collect();
-    let field_names: Vec<String> = fields.iter().map(|f| {
-        get_crud_rename(&f.attrs).unwrap_or_else(|| f.ident.as_ref().unwrap().to_string())
-    }).collect();
+    let field_names: Vec<String> = fields
+        .iter()
+        .map(|f| get_crud_rename(&f.attrs).unwrap_or_else(|| f.ident.as_ref().unwrap().to_string()))
+        .collect();
     let field_types: Vec<_> = fields.iter().map(|f| &f.ty).collect();
     let non_pk_idents: Vec<_> = fields
         .iter()
@@ -90,9 +257,15 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
 
     let expanded = match db_type.as_str() {
         "postgres" => {
-            let pg_placeholders: Vec<String> = (1..=field_names.len()).map(|i| format!("${}", i)).collect();
-            let pg_placeholders_tokens: Vec<_> = pg_placeholders.iter().map(|s| syn::LitStr::new(s, proc_macro2::Span::call_site())).collect();
-            let pg_set_exprs: Vec<String> = non_pk_names.iter().enumerate()
+            let pg_placeholders: Vec<String> =
+                (1..=field_names.len()).map(|i| format!("${}", i)).collect();
+            let pg_placeholders_tokens: Vec<_> = pg_placeholders
+                .iter()
+                .map(|s| syn::LitStr::new(s, proc_macro2::Span::call_site()))
+                .collect();
+            let pg_set_exprs: Vec<String> = non_pk_names
+                .iter()
+                .enumerate()
                 .map(|(i, name)| format!("{} = ${}", name, i + 1))
                 .collect();
             let pg_set_sql = pg_set_exprs.join(", ");
@@ -481,7 +654,6 @@ fn has_primary_key_attr(attrs: &[Attribute]) -> bool {
     }
     false
 }
-
 
 fn extract_option_inner_type_deep(ty: &syn::Type) -> &syn::Type {
     let mut t = ty;

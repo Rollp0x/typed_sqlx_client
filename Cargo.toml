@@ -12,9 +12,6 @@ readme = "README.md"
 keywords = ["sqlx", "database", "actix-web", "type-safe", "orm"]
 categories = ["database", "web-programming", "asynchronous"]
 
-[features]
-full = []
-
 
 [dependencies]
 sqlx = { version = "0.8.0", default-features = false }

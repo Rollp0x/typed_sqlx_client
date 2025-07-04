@@ -1,11 +1,11 @@
-use typed_sqlx_client::{CrudOpsRef, SqlPool, SelectOnlyQuery};
-use sqlx::{PgPool, FromRow};
+use ethereum_mysql::{SqlAddress, sqladdress};
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, PgPool};
+use typed_sqlx_client::{CrudOpsRef, SelectOnlyQuery, SqlPool};
 use uuid::Uuid;
-use ethereum_mysql::{SqlAddress,sqladdress};
-use serde::{Serialize, Deserialize};
 
 #[derive(FromRow, CrudOpsRef, Clone, Debug, Serialize, Deserialize)]
-#[crud(table = "user_infos",db = "postgres")]
+#[crud(table = "user_infos", db = "postgres")]
 pub struct UserInfo {
     #[crud(primary_key)]
     pub id: Option<Uuid>,
@@ -27,7 +27,10 @@ async fn main() {
     let pool = SqlPool::from_pool::<TestDB>(pool);
     let user_info_table = pool.get_table::<UserInfo>();
     // Drop table if exists to ensure a fresh table each time
-    let _ = sqlx::query("DROP TABLE IF EXISTS user_infos").execute(user_info_table.get_pool()).await.unwrap();
+    let _ = sqlx::query("DROP TABLE IF EXISTS user_infos")
+        .execute(user_info_table.get_pool())
+        .await
+        .unwrap();
     let _ = sqlx::query(
         "CREATE TABLE IF NOT EXISTS user_infos (
             id UUID PRIMARY KEY,
@@ -36,8 +39,11 @@ async fn main() {
             age INT,
             is_active BOOLEAN NOT NULL,
             address VARCHAR(42) NOT NULL
-        )"
-    ).execute(user_info_table.get_pool()).await.unwrap();
+        )",
+    )
+    .execute(user_info_table.get_pool())
+    .await
+    .unwrap();
 
     let user_info = UserInfo {
         id: Some(Uuid::new_v4()),
@@ -49,15 +55,24 @@ async fn main() {
     };
     user_info_table.insert(&user_info).await.unwrap();
     let sql = "select * from user_infos";
-    let query = user_info_table.execute_select_as_only::<UserInfo>(sql).await.unwrap();
+    let query = user_info_table
+        .execute_select_as_only::<UserInfo>(sql)
+        .await
+        .unwrap();
     assert!(query.len() == 1, "Expected one user info record");
     let into_of_value = query.into_iter().next().unwrap();
     println!("Query result: {:?}", into_of_value);
     let uuid = into_of_value.id.as_ref().unwrap().clone();
     let mut user_info = user_info_table.get_by_id(&uuid).await.unwrap().unwrap();
-    assert!(user_info.age == Some(30), "Expected user_info.age to be Some(30)");
+    assert!(
+        user_info.age == Some(30),
+        "Expected user_info.age to be Some(30)"
+    );
     user_info.age = Some(45);
-    user_info_table.update_by_id(&uuid,&user_info).await.unwrap();
+    user_info_table
+        .update_by_id(&uuid, &user_info)
+        .await
+        .unwrap();
     user_info = user_info_table.get_by_id(&uuid).await.unwrap().unwrap();
     assert_eq!(user_info.age, Some(45), "Expected age to be updated to 45");
     user_info_table.delete_by_id(&uuid).await.unwrap();
@@ -85,7 +100,10 @@ async fn main() {
             }
         }
     }
-    let count_result:Vec<(i64,)> = user_info_table.execute_select_as_only::<(i64,)>(sql).await.unwrap();
+    let count_result: Vec<(i64,)> = user_info_table
+        .execute_select_as_only::<(i64,)>(sql)
+        .await
+        .unwrap();
     assert!(count_result.len() == 1, "Expected one row in count result");
     let count = count_result[0].0;
     assert_eq!(count, 2, "Expected count to be 2 after batch insert");

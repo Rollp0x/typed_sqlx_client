@@ -46,12 +46,11 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
 
     for field in fields {
         let field_name = field.ident.as_ref().unwrap();
-        let field_name_str = field_name.to_string();
         let field_type = &field.ty;
 
         // Check if this field is marked as primary key
         if has_primary_key_attr(&field.attrs) {
-            primary_key_field = Some(field_name_str.clone());
+            primary_key_field = Some(field_name.to_string());
             primary_key_type = Some(field_type.clone());
             break;
         }
@@ -60,137 +59,340 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
     // Default to first field if no primary key is marked
     let (primary_key_field, primary_key_type) =
         if let (Some(field), Some(typ)) = (primary_key_field, primary_key_type) {
-            (field, typ)
+            let pk_ty = extract_option_inner_type_deep(&typ);
+            (field, pk_ty.clone())
         } else {
-            // Use first field as default primary key
-            let first_field = fields
-                .iter()
-                .next()
-                .expect("Struct must have at least one field");
+            let first_field = fields.iter().next().expect("Struct must have at least one field");
             let field_name = first_field.ident.as_ref().unwrap().to_string();
             let field_type = &first_field.ty;
-            (field_name, field_type.clone())
+            let pk_ty = extract_option_inner_type_deep(field_type);
+            (field_name, pk_ty.clone())
         };
 
     // Generate field idents, field names, and placeholders
     let field_idents: Vec<_> = fields.iter().map(|f| f.ident.as_ref().unwrap()).collect();
-    let field_names: Vec<_> = field_idents.iter().map(|ident| ident.to_string()).collect();
-    let placeholders: Vec<_> = (0..field_names.len()).map(|_| "?").collect::<Vec<_>>();
-    // Collect all field types
+    let field_names: Vec<String> = fields.iter().map(|f| {
+        get_crud_rename(&f.attrs).unwrap_or_else(|| f.ident.as_ref().unwrap().to_string())
+    }).collect();
     let field_types: Vec<_> = fields.iter().map(|f| &f.ty).collect();
-    // Generate non-primary key fields
     let non_pk_idents: Vec<_> = fields
         .iter()
         .filter(|f| f.ident.as_ref().unwrap().to_string() != primary_key_field)
         .map(|f| f.ident.as_ref().unwrap())
         .collect();
-    let non_pk_names: Vec<_> = non_pk_idents
+    let non_pk_names: Vec<String> = fields
         .iter()
-        .map(|ident| ident.to_string())
+        .filter(|f| f.ident.as_ref().unwrap().to_string() != primary_key_field)
+        .map(|f| get_crud_rename(&f.attrs).unwrap_or_else(|| f.ident.as_ref().unwrap().to_string()))
         .collect();
-    let set_exprs: Vec<_> = non_pk_names
-        .iter()
-        .map(|name| format!("{} = ?", name))
-        .collect();
-    let set_sql = set_exprs.join(", ");
 
-    // Generate simplified implementation to let the compiler check constraints at use sites
-    let expanded = quote! {
-        impl<P, DB> typed_sqlx_client::CrudOpsRef<#primary_key_type, #struct_name>
-            for typed_sqlx_client::SqlTable<P, DB, #struct_name>
-        where
-            P: sqlx::Database,
-            DB: Send + Sync,
-            #struct_name: for<'r> sqlx::FromRow<'r, P::Row> + Send + Sync,
-            str: sqlx::ColumnIndex<P::Row>,
-            for<'q> P::Arguments<'q>: sqlx::IntoArguments<'q, P>,
-            for<'c> &'c sqlx::Pool<P>: sqlx::Executor<'c, Database = P>,
-            // Add Encode/Type bounds for all field types
-            #(
-                #field_types: for<'r> sqlx::Encode<'r, P> + sqlx::Type<P>,
-            )*
-        {
-            type Error = sqlx::Error;
+    let db_type = parse_db_type(&input.attrs);
 
-            fn delete_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
-                async move {
-                    let sql = format!("DELETE FROM {} WHERE {} = ?", #table_name, #primary_key_field);
-                    sqlx::query(&sql).bind(id).execute(self.get_pool()).await?;
-                    Ok(())
-                }
-            }
+    let expanded = match db_type.as_str() {
+        "postgres" => {
+            let pg_placeholders: Vec<String> = (1..=field_names.len()).map(|i| format!("${}", i)).collect();
+            let pg_placeholders_tokens: Vec<_> = pg_placeholders.iter().map(|s| syn::LitStr::new(s, proc_macro2::Span::call_site())).collect();
+            let pg_set_exprs: Vec<String> = non_pk_names.iter().enumerate()
+                .map(|(i, name)| format!("{} = ${}", name, i + 1))
+                .collect();
+            let pg_set_sql = pg_set_exprs.join(", ");
+            let update_pk_index = non_pk_names.len() + 1;
 
-            fn get_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<Option<#struct_name>, Self::Error>> + Send {
-                async move {
-                    let sql = format!("SELECT * FROM {} WHERE {} = ?", #table_name, #primary_key_field);
-                    let result = sqlx::query_as::<P, #struct_name>(&sql)
-                        .bind(id)
-                        .fetch_optional(self.get_pool())
-                        .await?;
-                    Ok(result)
-                }
-            }
-
-            fn insert(&self, entity: &#struct_name) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
-                async move {
-                    let sql = concat!(
-                        "INSERT INTO ",
-                        #table_name,
-                        " (",
-                        #(#field_names),*,
-                        ") VALUES (",
-                        #(#placeholders),*,
-                        ")"
-                    );
-                    let mut query = sqlx::query(sql);
+            quote! {
+                impl<DB> typed_sqlx_client::CrudOpsRef<#primary_key_type, #struct_name>
+                    for typed_sqlx_client::SqlTable<sqlx::Postgres, DB, #struct_name>
+                where
+                    DB: Send + Sync,
+                    #struct_name: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Sync,
+                    for<'a> &'a str: sqlx::ColumnIndex<sqlx::postgres::PgRow>,
+                    sqlx::postgres::PgArguments: for<'q> sqlx::IntoArguments<'q, sqlx::Postgres>,
+                    for<'c> &'c sqlx::Pool<sqlx::Postgres>: sqlx::Executor<'c, Database = sqlx::Postgres>,
                     #(
-                        query = query.bind(&entity.#field_idents);
+                        #field_types: for<'r> sqlx::Encode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
                     )*
-                    query.execute(self.get_pool()).await?;
-                    Ok(())
-                }
-            }
+                {
+                    type Error = sqlx::Error;
 
-            fn update_by_id(&self, id: &#primary_key_type, entity: &#struct_name) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
-                async move {
-                    let sql = concat!(
-                        "UPDATE ",
-                        #table_name,
-                        " SET ",
-                        #set_sql,
-                        " WHERE ",
-                        #primary_key_field,
-                        " = ?"
-                    );
-                    let mut query = sqlx::query(sql);
-                    #(
-                        query = query.bind(&entity.#non_pk_idents);
-                    )*
-                    query = query.bind(id);
-                    query.execute(self.get_pool()).await?;
-                    Ok(())
-                }
-            }
-
-            fn insert_batch(&self, entities: &[#struct_name]) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
-                async move {
-                    let sql = concat!(
-                        "INSERT INTO ",
-                        #table_name,
-                        " (",
-                        #(#field_names),*,
-                        ") VALUES (",
-                        #(#placeholders),*,
-                        ")"
-                    );
-                    for entity in entities {
-                        let mut query = sqlx::query(sql);
-                        #(
-                            query = query.bind(&entity.#field_idents);
-                        )*
-                        query.execute(self.get_pool()).await?;
+                    fn delete_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let sql = format!("DELETE FROM {} WHERE {} = $1", #table_name, #primary_key_field);
+                            sqlx::query(&sql).bind(id).execute(self.get_pool()).await?;
+                            Ok(())
+                        }
                     }
-                    Ok(())
+
+                    fn get_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<Option<#struct_name>, Self::Error>> + Send {
+                        async move {
+                            let sql = format!("SELECT * FROM {} WHERE {} = $1", #table_name, #primary_key_field);
+                            let result = sqlx::query_as::<sqlx::Postgres, #struct_name>(&sql)
+                                .bind(id)
+                                .fetch_optional(self.get_pool())
+                                .await?;
+                            Ok(result)
+                        }
+                    }
+
+                    fn insert(&self, entity: &#struct_name) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let fields = [#(#field_names),*].join(", ");
+                            let placeholders = [#(#pg_placeholders_tokens),*].join(", ");
+                            let sql = format!(
+                                "INSERT INTO {} ({}) VALUES ({})",
+                                #table_name,
+                                fields,
+                                placeholders
+                            );
+                            let mut query = sqlx::query(&sql);
+                            #(
+                                query = query.bind(&entity.#field_idents);
+                            )*
+                            query.execute(self.get_pool()).await?;
+                            Ok(())
+                        }
+                    }
+
+                    fn update_by_id(&self, id: &#primary_key_type, entity: &#struct_name) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let sql = format!(
+                                "UPDATE {} SET {} WHERE {} = ${}",
+                                #table_name,
+                                #pg_set_sql,
+                                #primary_key_field,
+                                #update_pk_index
+                            );
+                            let mut query = sqlx::query(&sql);
+                            #(
+                                query = query.bind(&entity.#non_pk_idents);
+                            )*
+                            query = query.bind(id);
+                            query.execute(self.get_pool()).await?;
+                            Ok(())
+                        }
+                    }
+
+                    fn insert_batch(&self, entities: &[#struct_name]) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let fields = [#(#field_names),*].join(", ");
+                            let placeholders = [#(#pg_placeholders_tokens),*].join(", ");
+                            for entity in entities {
+                                let sql = format!(
+                                    "INSERT INTO {} ({}) VALUES ({})",
+                                    #table_name,
+                                    fields,
+                                    placeholders
+                                );
+                                let mut query = sqlx::query(&sql);
+                                #(
+                                    query = query.bind(&entity.#field_idents);
+                                )*
+                                query.execute(self.get_pool()).await?;
+                            }
+                            Ok(())
+                        }
+                    }
+                }
+            }
+        }
+        "sqlite" => {
+            let placeholders: Vec<_> = (0..field_names.len()).map(|_| "?").collect::<Vec<_>>();
+            let set_exprs: Vec<_> = non_pk_names
+                .iter()
+                .map(|name| format!("{} = ?", name))
+                .collect();
+            let set_sql = set_exprs.join(", ");
+            quote! {
+                impl<DB> typed_sqlx_client::CrudOpsRef<#primary_key_type, #struct_name>
+                    for typed_sqlx_client::SqlTable<sqlx::Sqlite, DB, #struct_name>
+                where
+                    DB: Send + Sync,
+                    #struct_name: for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> + Send + Sync,
+                    for<'a> &'a str: sqlx::ColumnIndex<sqlx::sqlite::SqliteRow>,
+                    for<'q> sqlx::sqlite::SqliteArguments<'q>: sqlx::IntoArguments<'q, sqlx::Sqlite>,
+                    for<'c> &'c sqlx::Pool<sqlx::Sqlite>: sqlx::Executor<'c, Database = sqlx::Sqlite>,
+                    #(
+                        #field_types: for<'r> sqlx::Encode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite>,
+                    )*
+                {
+                    type Error = sqlx::Error;
+
+                    fn delete_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let sql = format!("DELETE FROM {} WHERE {} = ?", #table_name, #primary_key_field);
+                            sqlx::query(&sql).bind(id).execute(self.get_pool()).await?;
+                            Ok(())
+                        }
+                    }
+
+                    fn get_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<Option<#struct_name>, Self::Error>> + Send {
+                        async move {
+                            let sql = format!("SELECT * FROM {} WHERE {} = ?", #table_name, #primary_key_field);
+                            let result = sqlx::query_as::<sqlx::Sqlite, #struct_name>(&sql)
+                                .bind(id)
+                                .fetch_optional(self.get_pool())
+                                .await?;
+                            Ok(result)
+                        }
+                    }
+
+                    fn insert(&self, entity: &#struct_name) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let fields = [#(#field_names),*].join(", ");
+                            let placeholders = [#(#placeholders),*].join(", ");
+                            let sql = format!(
+                                "INSERT INTO {} ({}) VALUES ({})",
+                                #table_name,
+                                fields,
+                                placeholders
+                            );
+                            let mut query = sqlx::query(&sql);
+                            #(
+                                query = query.bind(&entity.#field_idents);
+                            )*
+                            query.execute(self.get_pool()).await?;
+                            Ok(())
+                        }
+                    }
+
+                    fn update_by_id(&self, id: &#primary_key_type, entity: &#struct_name) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let sql = format!(
+                                "UPDATE {} SET {} WHERE {} = ?",
+                                #table_name,
+                                #set_sql,
+                                #primary_key_field
+                            );
+                            let mut query = sqlx::query(&sql);
+                            #(
+                                query = query.bind(&entity.#non_pk_idents);
+                            )*
+                            query = query.bind(id);
+                            query.execute(self.get_pool()).await?;
+                            Ok(())
+                        }
+                    }
+
+                    fn insert_batch(&self, entities: &[#struct_name]) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let fields = [#(#field_names),*].join(", ");
+                            let placeholders = [#(#placeholders),*].join(", ");
+                            for entity in entities {
+                                let sql = format!(
+                                    "INSERT INTO {} ({}) VALUES ({})",
+                                    #table_name,
+                                    fields,
+                                    placeholders
+                                );
+                                let mut query = sqlx::query(&sql);
+                                #(
+                                    query = query.bind(&entity.#field_idents);
+                                )*
+                                query.execute(self.get_pool()).await?;
+                            }
+                            Ok(())
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            // default to MySQL
+            let placeholders: Vec<_> = (0..field_names.len()).map(|_| "?").collect::<Vec<_>>();
+            let set_exprs: Vec<_> = non_pk_names
+                .iter()
+                .map(|name| format!("{} = ?", name))
+                .collect();
+            let set_sql = set_exprs.join(", ");
+            quote! {
+                impl<DB> typed_sqlx_client::CrudOpsRef<#primary_key_type, #struct_name>
+                    for typed_sqlx_client::SqlTable<sqlx::MySql, DB, #struct_name>
+                where
+                    DB: Send + Sync,
+                    #struct_name: for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow> + Send + Sync,
+                    for<'a> &'a str: sqlx::ColumnIndex<sqlx::mysql::MySqlRow>,
+                    sqlx::mysql::MySqlArguments: for<'q> sqlx::IntoArguments<'q, sqlx::MySql>,
+                    for<'c> &'c sqlx::Pool<sqlx::MySql>: sqlx::Executor<'c, Database = sqlx::MySql>,
+                    #(
+                        #field_types: for<'r> sqlx::Encode<'r, sqlx::MySql> + sqlx::Type<sqlx::MySql>,
+                    )*
+                {
+                    type Error = sqlx::Error;
+
+                    fn delete_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let sql = format!("DELETE FROM {} WHERE {} = ?", #table_name, #primary_key_field);
+                            sqlx::query(&sql).bind(id).execute(self.get_pool()).await?;
+                            Ok(())
+                        }
+                    }
+
+                    fn get_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<Option<#struct_name>, Self::Error>> + Send {
+                        async move {
+                            let sql = format!("SELECT * FROM {} WHERE {} = ?", #table_name, #primary_key_field);
+                            let result = sqlx::query_as::<sqlx::MySql, #struct_name>(&sql)
+                                .bind(id)
+                                .fetch_optional(self.get_pool())
+                                .await?;
+                            Ok(result)
+                        }
+                    }
+
+                    fn insert(&self, entity: &#struct_name) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let fields = [#(#field_names),*].join(", ");
+                            let placeholders = [#(#placeholders),*].join(", ");
+                            let sql = format!(
+                                "INSERT INTO {} ({}) VALUES ({})",
+                                #table_name,
+                                fields,
+                                placeholders
+                            );
+                            let mut query = sqlx::query(&sql);
+                            #(
+                                query = query.bind(&entity.#field_idents);
+                            )*
+                            query.execute(self.get_pool()).await?;
+                            Ok(())
+                        }
+                    }
+
+                    fn update_by_id(&self, id: &#primary_key_type, entity: &#struct_name) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let sql = format!(
+                                "UPDATE {} SET {} WHERE {} = ?",
+                                #table_name,
+                                #set_sql,
+                                #primary_key_field
+                            );
+                            let mut query = sqlx::query(&sql);
+                            #(
+                                query = query.bind(&entity.#non_pk_idents);
+                            )*
+                            query = query.bind(id);
+                            query.execute(self.get_pool()).await?;
+                            Ok(())
+                        }
+                    }
+
+                    fn insert_batch(&self, entities: &[#struct_name]) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+                        async move {
+                            let fields = [#(#field_names),*].join(", ");
+                            let placeholders = [#(#placeholders),*].join(", ");
+                            for entity in entities {
+                                let sql = format!(
+                                    "INSERT INTO {} ({}) VALUES ({})",
+                                    #table_name,
+                                    fields,
+                                    placeholders
+                                );
+                                let mut query = sqlx::query(&sql);
+                                #(
+                                    query = query.bind(&entity.#field_idents);
+                                )*
+                                query.execute(self.get_pool()).await?;
+                            }
+                            Ok(())
+                        }
+                    }
                 }
             }
         }
@@ -199,20 +401,62 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-// Helper function to parse table name from struct attributes
-fn parse_table_name(attrs: &[Attribute], default: &str) -> String {
+fn parse_db_type(attrs: &[syn::Attribute]) -> String {
     for attr in attrs {
         if attr.path().is_ident("crud") {
-            if let Meta::List(meta_list) = &attr.meta {
-                let tokens_str = meta_list.tokens.to_string();
+            let parser = syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated;
+            if let Ok(meta_list) = attr.parse_args_with(parser) {
+                for meta in meta_list {
+                    if let syn::Meta::NameValue(nv) = meta {
+                        if nv.path.is_ident("db") {
+                            if let syn::Expr::Lit(expr_lit) = &nv.value {
+                                if let syn::Lit::Str(litstr) = &expr_lit.lit {
+                                    return litstr.value();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    "mysql".to_string()
+}
 
-                if tokens_str.contains("table") {
-                    // Find content within quotes
-                    if let Some(start) = tokens_str.find('"') {
-                        if let Some(end) = tokens_str.rfind('"') {
-                            if start < end {
-                                let table_name = &tokens_str[start + 1..end];
-                                return table_name.to_string();
+fn get_crud_rename(attrs: &[Attribute]) -> Option<String> {
+    for attr in attrs {
+        if attr.path().is_ident("crud") {
+            let parser = syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated;
+            if let Ok(meta_list) = attr.parse_args_with(parser) {
+                for meta in meta_list {
+                    if let syn::Meta::NameValue(nv) = meta {
+                        if nv.path.is_ident("rename") {
+                            if let syn::Expr::Lit(expr_lit) = &nv.value {
+                                if let syn::Lit::Str(litstr) = &expr_lit.lit {
+                                    return Some(litstr.value());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn parse_table_name(attrs: &[syn::Attribute], default: &str) -> String {
+    for attr in attrs {
+        if attr.path().is_ident("crud") {
+            let parser = syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated;
+            if let Ok(meta_list) = attr.parse_args_with(parser) {
+                for meta in meta_list {
+                    if let syn::Meta::NameValue(nv) = meta {
+                        if nv.path.is_ident("table") {
+                            if let syn::Expr::Lit(expr_lit) = &nv.value {
+                                if let syn::Lit::Str(litstr) = &expr_lit.lit {
+                                    return litstr.value();
+                                }
                             }
                         }
                     }
@@ -236,4 +480,25 @@ fn has_primary_key_attr(attrs: &[Attribute]) -> bool {
         }
     }
     false
+}
+
+
+fn extract_option_inner_type_deep(ty: &syn::Type) -> &syn::Type {
+    let mut t = ty;
+    loop {
+        if let syn::Type::Path(type_path) = t {
+            if let Some(seg) = type_path.path.segments.first() {
+                if seg.ident == "Option" {
+                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                        if let Some(syn::GenericArgument::Type(inner_ty)) = args.args.first() {
+                            t = inner_ty;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        break;
+    }
+    t
 }

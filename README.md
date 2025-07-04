@@ -13,19 +13,19 @@ Current: **0.2.0**
 
 ## What's New in 0.2.0
 
-- **`CrudOpsRef` derive macro:** Automatically implements CRUD operations for your entity structs, including `insert`, `update_by_id`, `delete_by_id`, `get_by_id`, and `insert_batch`.
-- **Automatic trait bounds:** All field types are automatically checked for the necessary `sqlx` traits.
-- **Primary key detection:** Supports `#[crud(primary_key)]` attribute, or defaults to the first field.
-- **Batch insert:** `insert_batch` provided out of the box.
-- **English documentation and comments.**
-- **Limitation:** `CrudOpsRef` currently supports only MySQL and SQLite. **Postgres is not supported** due to parameter syntax differences.
+- **`CrudOpsRef` derive macro**: Now supports field renaming, custom table name and database type, and primary key selection. Works with MySQL, PostgreSQL, and SQLite.
+- **Type-safe batch insert**: `insert_batch` is available for all supported databases.
+- **Flexible SELECT queries**: The `SelectOnlyQuery` trait now provides `execute_select_as_only<T>`, allowing you to fetch results as any struct or tuple implementing `sqlx::FromRow` for type-safe querying.
+- **Improved documentation and examples**.
 
 ## Features
 - Type-safe pool and table wrappers for sqlx
 - Easy integration with actix-web and other frameworks
 - Per-table trait implementations for CRUD and custom operations
 - Supports multiple databases and tables in a single project
-- Macro for read-only SELECT queries with type-preserving JSON output
+- Flexible read-only SELECT queries:
+    - `execute_select_only`: Returns results as type-preserving JSON (`serde_json::Value`), suitable for dynamic or unknown schemas.
+    - `execute_select_as_only<T>`: Returns results as any struct or tuple implementing `sqlx::FromRow`, for type-safe querying.
 - Automatic CRUD derive macro for entity structs
 
 ## Example Usage
@@ -65,14 +65,7 @@ struct UserEntity {
 // Enable the feature for your database, e.g. mysql
 // In Cargo.toml: features = ["mysql"]
 use typed_sqlx_client::select_only_query;
-
-// The macro is automatically invoked for SqlTable<MySql, .., ..> if the feature is enabled.
-// Usage for custom database types:
-// select_only_query!(sqlx::mysql::MySql);
-
-// Query results preserve int/float/bool types in JSON; unsupported types are null.
-
-
+```
 
 
 

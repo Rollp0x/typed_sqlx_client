@@ -41,7 +41,7 @@ pub trait CrudOpsRef<ID, Entity> {
 /// This trait is designed for advanced scenarios where you need to run dynamic or arbitrary SELECT queries
 /// and get results in a flexible format (such as JSON or a custom struct). It is strongly recommended to
 /// only allow SELECT statements to ensure database safety and prevent accidental data modification.
-pub trait SelectOnlyQuery {
+pub trait SelectOnlyQuery<P: sqlx::Database> {
     /// The error type for query execution.
     type MError;
     /// The output/result type for the query (e.g. a JSON wrapper or custom struct).
@@ -52,4 +52,27 @@ pub trait SelectOnlyQuery {
     /// # Arguments
     /// * `query` - The SQL string to execute. Only SELECT statements are allowed.
     fn execute_select_only(&self, query: &str) -> impl Future<Output = Result<Self::Output, Self::MError>> + Send;
+
+    /// Execute a raw SELECT SQL query and return the result as a vector of strongly-typed entities.
+    ///
+    /// This method allows you to execute arbitrary SELECT statements and directly deserialize each row
+    /// into a Rust struct or tuple that implements [`sqlx::FromRow`]. This is useful for type-safe queries,
+    /// custom projections, or when you want to work with concrete types instead of generic JSON values.
+    ///
+    /// # Type Parameters
+    /// * `T` - The target type for each row, must implement [`sqlx::FromRow`].
+    ///
+    /// # Arguments
+    /// * `query` - The SQL SELECT statement to execute.
+    ///
+    /// # Returns
+    /// * `Result<Vec<T>, Self::MError>` - A vector of deserialized rows, or an error.
+    ///
+    /// # Example
+    /// ```
+    /// let users: Vec<User> = table.execute_select_as_only::<User>("SELECT * FROM users").await?;
+    /// ```
+    fn execute_select_as_only<T>(&self, query: &str) -> impl Future<Output = Result<Vec<T>, Self::MError>> + Send
+    where
+        T: for<'r> sqlx::FromRow<'r, <P as sqlx::Database>::Row> + Send + Unpin + 'static;
 }

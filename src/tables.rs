@@ -66,7 +66,7 @@ impl<P: Database, DB, Table> Deref for SqlTable<P, DB, Table> {
     }
 }
 
-impl<P: Database, DB, Table> SelectOnlyQuery for SqlTable<P, DB, Table>
+impl<P: Database, DB, Table> SelectOnlyQuery<P> for SqlTable<P, DB, Table>
 where
     DB: Sync + Send,
     Table: Sync + Send,
@@ -76,9 +76,11 @@ where
     for<'r> &'r str: ColumnIndex<P::Row>,
     for<'r> i64: Type<P> + Decode<'r, P>,
     for<'r> f64: Type<P> + Decode<'r, P>,
+    for<'r> i32: Type<P> + Decode<'r, P>,
     for<'r> bool: Type<P> + Decode<'r, P>,
     for<'r> String: Type<P> + Decode<'r, P>,
     for<'q> P::Arguments<'q>: IntoArguments<'q, P>,
+    for<'r> Vec<u8>: Type<P> + Decode<'r, P>,
 {
     type MError = sqlx::Error;
     type Output = Vec<serde_json::Value>;
@@ -113,6 +115,10 @@ where
                     serde_json::json!(v)
                 } else if let Ok(s) = row.try_get::<String, _>(column.as_str()) {
                     serde_json::from_str(&s).unwrap_or(serde_json::json!(s))
+                } else if let Ok(v) = row.try_get::<Vec<u8>, _>(column.as_str()) {
+                    serde_json::json!(v)
+                } else if let Ok(v) = row.try_get::<i32, _>(column.as_str()) {
+                    serde_json::json!(v)
                 } else {
                     serde_json::json!(null)
                 };
@@ -121,5 +127,22 @@ where
             result.push(serde_json::Value::Object(json_row));
         }
         Ok(result)
+    }
+
+    async fn execute_select_as_only<T>(&self, query: &str) -> Result<Vec<T>, Self::MError>
+        where
+            T: for<'r> sqlx::FromRow<'r, <P as sqlx::Database>::Row> + Send + Unpin + 'static
+    {
+        let trimmed_query = query.trim().to_lowercase();
+        if !trimmed_query.starts_with("select") {
+            return Err(sqlx::Error::InvalidArgument(
+                "Only SELECT queries are allowed".into(),
+            ));
+        }
+        let pool = self.get_pool();
+        let values:Vec<T> = sqlx::query_as(query)
+            .fetch_all(pool)
+            .await?;
+        Ok(values)
     }
 }

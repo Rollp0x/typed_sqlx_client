@@ -9,11 +9,11 @@ All notable changes to this project will be documented in this file.
 - Feature: All field types are automatically checked for required `sqlx` traits.
 - Feature: Batch insert (`insert_batch`) support.
 
+### Added
+- `execute_select_as_only<T>` to `SelectOnlyQuery` trait for type-safe dynamic SELECT queries.
+
 ### Removed
 - Breaking: The old `CrudOps` trait is removed; only `CrudOpsRef` is needed for reference-based CRUD.
-
-### Limitation
-- `CrudOpsRef` currently supports only MySQL and SQLite. **Postgres is not supported** due to parameter syntax differences.
 
 ## [0.1.1] - 2025-07-02
 ### Added

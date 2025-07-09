@@ -23,7 +23,7 @@ use std::future::Future;
 ///
 /// ## Example Usage
 /// ```rust
-/// use typed_sqlx_client::{CrudOpsRef, SqlPool};
+/// use typed_sqlx_client::{CrudOpsRef, SqlDB};
 /// use sqlx::FromRow;
 /// use uuid::Uuid;
 ///

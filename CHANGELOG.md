@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2025-07-09
+
+### 🆕 Added
+- **New `validate` method**: `SqlDB` now provides an async `validate()` method to check database connectivity at runtime. This helps with health checks and diagnostics for all supported databases.
+- **Type alias migration**: The main type-safe pool struct is now named `SqlDB` (was `SqlPool`).
+- **Backward compatibility**: `SqlPool` is now a type alias for `SqlDB`, so all existing code using `SqlPool` will continue to work without modification.
+
+### 🛠️ Changed
+- **Recommended usage**: All new code should use `SqlDB` as the preferred type name for database pools. `SqlPool` remains available for legacy code and compatibility.
+
 ## [0.2.0] - 2025-07-04
 
 This is a major release with significant API improvements and breaking changes.

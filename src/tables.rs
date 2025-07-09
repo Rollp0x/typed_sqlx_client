@@ -7,7 +7,7 @@ use std::ops::Deref;
 
 /// Type-safe wrapper for a database connection pool.
 ///
-/// `SqlPool` provides compile-time safety and database disambiguation through marker types.
+/// `SqlDB` provides compile-time safety and database disambiguation through marker types.
 /// This is essential for applications that work with multiple databases, as it prevents
 /// accidentally mixing connections or operations between different database instances.
 ///
@@ -28,9 +28,9 @@ use std::ops::Deref;
 /// struct AnalyticsDatabase;  
 /// struct CacheDatabase;
 ///
-/// let main_pool = SqlPool::from_pool::<MainDatabase>(main_pg_pool);
-/// let analytics_pool = SqlPool::from_pool::<AnalyticsDatabase>(analytics_pg_pool);
-/// let cache_pool = SqlPool::from_pool::<CacheDatabase>(cache_sqlite_pool);
+/// let main_pool = SqlDB::from_pool::<MainDatabase>(main_pg_pool);
+/// let analytics_pool = SqlDB::from_pool::<AnalyticsDatabase>(analytics_pg_pool);
+/// let cache_pool = SqlDB::from_pool::<CacheDatabase>(cache_sqlite_pool);
 /// ```
 ///
 /// ## Integration with Web Frameworks
@@ -40,8 +40,8 @@ use std::ops::Deref;
 ///
 /// #[actix_web::main]
 /// async fn main() -> std::io::Result<()> {
-///     let main_pool = SqlPool::from_pool::<MainDatabase>(create_pg_pool().await);
-///     let analytics_pool = SqlPool::from_pool::<AnalyticsDatabase>(create_mysql_pool().await);
+///     let main_pool = SqlDB::from_pool::<MainDatabase>(create_pg_pool().await);
+///     let analytics_pool = SqlDB::from_pool::<AnalyticsDatabase>(create_mysql_pool().await);
 ///     
 ///     HttpServer::new(move || {
 ///         App::new()
@@ -54,18 +54,21 @@ use std::ops::Deref;
 ///     .await
 /// }
 ///
-/// async fn get_users(main_db: web::Data<SqlPool<sqlx::Postgres, MainDatabase>>) -> impl Responder {
+/// async fn get_users(main_db: web::Data<SqlDB<sqlx::Postgres, MainDatabase>>) -> impl Responder {
 ///     let user_table = main_db.get_table::<User>();
 ///     // ... use user_table
 /// }
 /// ```
 ///
 /// ## Thread Safety
-/// `SqlPool` is `Send + Sync` and can be safely shared across async tasks and threads.
+/// `SqlDB` is `Send + Sync` and can be safely shared across async tasks and threads.
 /// The underlying sqlx pool uses `Arc` internally, making cloning very efficient.
-pub struct SqlPool<P: Database, DB>(Pool<P>, PhantomData<DB>);
+pub struct SqlDB<P: Database, DB>(Pool<P>, PhantomData<DB>);
 
-impl<P: Database, DB> SqlPool<P, DB> {
+/// Backward-compatible alias for `SqlDB`.
+pub type SqlPool<P, DB> = SqlDB<P, DB>;
+
+impl<P: Database, DB> SqlDB<P, DB> {
     /// Get direct access to the underlying sqlx::Pool.
     ///
     /// This method provides access to the raw sqlx pool for advanced operations
@@ -77,10 +80,10 @@ impl<P: Database, DB> SqlPool<P, DB> {
     ///
     /// ## Example
     /// ```rust
-    /// # use typed_sqlx_client::SqlPool;
+    /// # use typed_sqlx_client::SqlDB;
     /// # use sqlx::PgPool;
     /// # struct MainDB;
-    /// # let pool = SqlPool::from_pool::<MainDB>(PgPool::connect("postgres://...").await.unwrap());
+    /// # let pool = SqlDB::from_pool::<MainDB>(PgPool::connect("postgres://...").await.unwrap());
     /// // Execute raw SQL
     /// let result = sqlx::query("SELECT version()")
     ///     .fetch_one(pool.pool())
@@ -97,20 +100,36 @@ impl<P: Database, DB> SqlPool<P, DB> {
     }
 }
 
-/// Implement Clone for SqlPool.
+impl<P: Database, DB> SqlDB<P, DB>
+where
+    for<'c> &'c Pool<P>: sqlx::Executor<'c, Database = P>,
+    for<'q> <P as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, P>,
+{
+    /// Validate the database connection by executing a simple query.
+    ///
+    /// Returns `Ok(())` if the connection is healthy, or an error if not.
+    pub async fn validate(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("SELECT 1")
+            .execute(self.pool())
+            .await
+            .map(|_| ())
+    }
+}
+
+/// Implement Clone for SqlDB.
 ///
 /// sqlx pools are designed to be cloned cheaply (they use Arc internally),
-/// so cloning a SqlPool is efficient and recommended for sharing across async tasks.
-impl<P: Database, DB> Clone for SqlPool<P, DB> {
+/// so cloning a SqlDB is efficient and recommended for sharing across async tasks.
+impl<P: Database, DB> Clone for SqlDB<P, DB> {
     fn clone(&self) -> Self {
         Self(self.0.clone(), PhantomData)
     }
 }
 
-impl<P: Database> SqlPool<P, ()> {
-    /// Create a typed SqlPool from a raw sqlx pool.
+impl<P: Database> SqlDB<P, ()> {
+    /// Create a typed SqlDB from a raw sqlx pool.
     ///
-    /// This is the primary factory method for creating `SqlPool` instances. The marker
+    /// This is the primary factory method for creating `SqlDB` instances. The marker
     /// type `DB` provides compile-time distinction between different database instances,
     /// preventing accidental mixing of database operations.
     ///
@@ -126,9 +145,9 @@ impl<P: Database> SqlPool<P, ()> {
     /// struct CacheDatabase;
     ///
     /// // Create pools with different markers
-    /// let user_pool = SqlPool::from_pool::<UserDatabase>(user_pg_pool);
-    /// let log_pool = SqlPool::from_pool::<LoggingDatabase>(log_mysql_pool);
-    /// let cache_pool = SqlPool::from_pool::<CacheDatabase>(cache_sqlite_pool);
+    /// let user_pool = SqlDB::from_pool::<UserDatabase>(user_pg_pool);
+    /// let log_pool = SqlDB::from_pool::<LoggingDatabase>(log_mysql_pool);
+    /// let cache_pool = SqlDB::from_pool::<CacheDatabase>(cache_sqlite_pool);
     ///
     /// // Type system prevents mixing:
     /// let user_table = user_pool.get_table::<User>();     // ✓ Correct
@@ -139,16 +158,16 @@ impl<P: Database> SqlPool<P, ()> {
     /// ## Example
     /// ```rust
     /// use sqlx::PgPool;
-    /// use typed_sqlx_client::SqlPool;
+    /// use typed_sqlx_client::SqlDB;
     ///
     /// struct MainDB;
     ///
     /// let raw_pool = PgPool::connect("postgres://user:pass@localhost/db").await?;
-    /// let typed_pool = SqlPool::from_pool::<MainDB>(raw_pool);
+    /// let typed_pool = SqlDB::from_pool::<MainDB>(raw_pool);
     /// # Ok::<(), sqlx::Error>(())
     /// ```
-    pub fn from_pool<DB>(pool: Pool<P>) -> SqlPool<P, DB> {
-        SqlPool(pool, PhantomData)
+    pub fn from_pool<DB>(pool: Pool<P>) -> SqlDB<P, DB> {
+        SqlDB(pool, PhantomData)
     }
 }
 
@@ -213,9 +232,9 @@ impl<P: Database> SqlPool<P, ()> {
 /// struct AnalyticsDB; // Analytics database
 ///
 /// // Each database can have multiple tables
-/// let user_pool = SqlPool::from_pool::<UserDB>(user_pg_pool);
-/// let content_pool = SqlPool::from_pool::<ContentDB>(content_mysql_pool);
-/// let analytics_pool = SqlPool::from_pool::<AnalyticsDB>(analytics_clickhouse_pool);
+/// let user_pool = SqlDB::from_pool::<UserDB>(user_pg_pool);
+/// let content_pool = SqlDB::from_pool::<ContentDB>(content_mysql_pool);
+/// let analytics_pool = SqlDB::from_pool::<AnalyticsDB>(analytics_clickhouse_pool);
 ///
 /// // Each table gets its own specialized handle
 /// let users = user_pool.get_table::<User>();           // User CRUD + custom user logic
@@ -235,7 +254,7 @@ impl<P: Database> SqlPool<P, ()> {
 ///
 /// ### 1. Basic CRUD Operations
 /// ```rust
-/// use typed_sqlx_client::{CrudOpsRef, SqlPool};
+/// use typed_sqlx_client::{CrudOpsRef, SqlDB};
 /// use sqlx::FromRow;
 ///
 /// #[derive(FromRow, CrudOpsRef)]
@@ -249,7 +268,7 @@ impl<P: Database> SqlPool<P, ()> {
 ///
 /// struct MainDB;
 ///
-/// # async fn example(pool: SqlPool<sqlx::Postgres, MainDB>) -> Result<(), sqlx::Error> {
+/// # async fn example(pool: SqlDB<sqlx::Postgres, MainDB>) -> Result<(), sqlx::Error> {
 /// let user_table = pool.get_table::<User>();
 ///
 /// // CRUD operations
@@ -263,7 +282,7 @@ impl<P: Database> SqlPool<P, ()> {
 ///
 /// ### 2. Advanced Queries
 /// ```rust
-/// # use typed_sqlx_client::{CrudOpsRef, SqlPool, SelectOnlyQuery};
+/// # use typed_sqlx_client::{CrudOpsRef, SqlDB, SelectOnlyQuery};
 /// # use sqlx::FromRow;
 /// # #[derive(FromRow, CrudOpsRef)]
 /// # #[crud(table = "users", db = "postgres")]
@@ -309,9 +328,9 @@ impl<P: Database> SqlPool<P, ()> {
 /// `SqlTable` is `Send + Sync` and can be safely shared across async tasks and threads.
 /// It's designed to be cloned efficiently for use in web handlers and async contexts.
 #[derive(Clone)]
-pub struct SqlTable<P: Database, DB, Table>(SqlPool<P, DB>, PhantomData<Table>);
+pub struct SqlTable<P: Database, DB, Table>(SqlDB<P, DB>, PhantomData<Table>);
 
-impl<P: Database, DB> SqlPool<P, DB> {
+impl<P: Database, DB> SqlDB<P, DB> {
     /// Create a typed table handle for a specific entity.
     ///
     /// This method creates a `SqlTable` instance that provides type-safe access to
@@ -325,23 +344,23 @@ impl<P: Database, DB> SqlPool<P, DB> {
     ///
     /// ### Single Table Access
     /// ```rust
-    /// # use typed_sqlx_client::SqlPool;
+    /// # use typed_sqlx_client::SqlDB;
     /// # use sqlx::FromRow;
     /// # #[derive(FromRow)] struct User { id: i64, name: String }
     /// # struct MainDB;
-    /// # let pool: SqlPool<sqlx::Postgres, MainDB> = todo!();
+    /// # let pool: SqlDB<sqlx::Postgres, MainDB> = todo!();
     /// let user_table = pool.get_table::<User>();
     /// ```
     ///
     /// ### Multiple Tables from Same Database
     /// ```rust
-    /// # use typed_sqlx_client::SqlPool;
+    /// # use typed_sqlx_client::SqlDB;
     /// # use sqlx::FromRow;
     /// # #[derive(FromRow)] struct User { id: i64, name: String }
     /// # #[derive(FromRow)] struct Post { id: i64, title: String }
     /// # #[derive(FromRow)] struct Comment { id: i64, content: String }
     /// # struct MainDB;
-    /// # let pool: SqlPool<sqlx::Postgres, MainDB> = todo!();
+    /// # let pool: SqlDB<sqlx::Postgres, MainDB> = todo!();
     /// let user_table = pool.get_table::<User>();
     /// let post_table = pool.get_table::<Post>();
     /// let comment_table = pool.get_table::<Comment>();
@@ -357,7 +376,7 @@ impl<P: Database, DB> SqlPool<P, DB> {
     /// }
     ///
     /// impl AppState {
-    ///     fn new(pool: SqlPool<sqlx::Postgres, MainDB>) -> Self {
+    ///     fn new(pool: SqlDB<sqlx::Postgres, MainDB>) -> Self {
     ///         Self {
     ///             user_table: Arc::new(pool.get_table::<User>()),
     ///             post_table: Arc::new(pool.get_table::<Post>()),

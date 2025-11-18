@@ -1,6 +1,6 @@
 [package]
 name = "typed_sqlx_client_macros"
-version = "0.2.0"
+version = "0.2.2"
 edition = "2021"
 authors = ["Rollp0x <zkrollp@gmail.com>"]
 description = "Derive macros for typed_sqlx_client - automatic CRUD trait implementations"

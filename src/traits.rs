@@ -89,6 +89,11 @@ pub trait CrudOpsRef<ID, Entity> {
     /// The error type for operations
     type Error;
 
+    /// Returns the table name for this entity.
+    ///
+    /// Such as `user_profiles`, `users`, etc.
+    fn table_name(&self) -> &'static str;
+
     /// Insert a single entity into the database.
     ///
     /// This method adds a new record to the database table. If the entity has an

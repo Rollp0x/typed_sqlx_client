@@ -21,13 +21,13 @@ A type-safe, extensible Rust library for managing multiple SQL databases and tab
 Add to your `Cargo.toml`:
 ```toml
 [dependencies]
-typed_sqlx_client = "0.2.0"
+typed_sqlx_client = "0.2.2"
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "uuid"] }
 ```
 
 Define your entity and get instant CRUD:
 ```rust
-use typed_sqlx_client::{CrudOpsRef, SqlPool, SelectOnlyQuery};
+use typed_sqlx_client::{CrudOpsRef, SqlDB, SelectOnlyQuery};
 use sqlx::{PgPool, FromRow};
 use uuid::Uuid;
 
@@ -47,9 +47,13 @@ struct MainDB;
 async fn main() -> Result<(), sqlx::Error> {
     // Setup typed pool
     let pool = PgPool::connect("postgres://...").await?;
-    let sql_pool = SqlPool::from_pool::<MainDB>(pool);
-    let user_table = sql_pool.get_table::<User>();
-    
+    let db = SqlDB::from_pool::<MainDB>(pool);
+    let user_table = db.get_table::<User>();
+
+    // You can get the table name for custom queries:
+    let table_name = user_table.table_name();
+
+    println!("Using table name: {}", table_name);
     // CRUD operations work immediately!
     let user = User { 
         id: Some(Uuid::new_v4()), 
@@ -62,17 +66,23 @@ async fn main() -> Result<(), sqlx::Error> {
     
     // Type-safe queries
     let users: Vec<User> = user_table
-        .execute_select_as_only::<User>("SELECT * FROM users WHERE active = true")
+        .execute_select_as_only::<User>(&format!("SELECT * FROM {} WHERE active = true", table_name))
         .await?;
     
     // Dynamic JSON queries  
     let json_data = user_table
-        .execute_select_only("SELECT name, email FROM users")
+        .execute_select_only(&format!("SELECT name, email FROM {}", table_name))
         .await?;
         
     Ok(())
 }
 ```
+
+## 📋 What's New in v0.2.2
+
+### New: Table Name Accessor
+- `CrudOpsRef` trait now provides a `table_name(&self) -> &'static str` method, allowing you to retrieve the table name at runtime for custom queries and dynamic SQL generation.
+- The derive macro automatically implements this method for all tables, using the value from `#[crud(table = "...")]`.
 
 ## 📋 What's New in v0.2.0
 
@@ -111,13 +121,13 @@ struct AnalyticsDatabase;
 struct CacheDatabase;
 
 // Type safety prevents mixing databases!
-let main_pool = SqlPool::from_pool::<MainDatabase>(pg_pool);
-let analytics_pool = SqlPool::from_pool::<AnalyticsDatabase>(mysql_pool);
-let cache_pool = SqlPool::from_pool::<CacheDatabase>(sqlite_pool);
+let main_db = SqlDB::from_pool::<MainDatabase>(pg_pool);
+let analytics_db = SqlDB::from_pool::<AnalyticsDatabase>(mysql_pool);
+let cache_db = SqlDB::from_pool::<CacheDatabase>(sqlite_pool);
 
-let users = main_pool.get_table::<User>();          // ✅ 
-let events = analytics_pool.get_table::<Event>();   // ✅
-// let wrong = main_pool.get_table::<Event>();      // ❌ Compile error!
+let users = main_db.get_table::<User>();          // ✅ 
+let events = analytics_db.get_table::<Event>();   // ✅
+// let wrong = main_db.get_table::<Event>();      // ❌ Compile error!
 ```
 
 ### Custom Field Mapping
@@ -184,8 +194,8 @@ async fn get_user(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let pool = SqlPool::from_pool::<MainDB>(create_pool().await);
-    let user_table = pool.get_table::<User>();
+    let db = SqlDB::from_pool::<MainDB>(create_pool().await);
+    let user_table = db.get_table::<User>();
     
     HttpServer::new(move || {
         App::new()
@@ -203,7 +213,7 @@ async fn main() -> std::io::Result<()> {
 Perfect for scenarios where different tables need different business logic:
 
 ```rust
-use typed_sqlx_client::{CrudOpsRef, SqlPool, SelectOnlyQuery};
+use typed_sqlx_client::{CrudOpsRef, SqlDB, SelectOnlyQuery};
 use sqlx::FromRow;
 
 // User table with analytics capabilities
@@ -272,10 +282,10 @@ impl ContentModeration for SqlTable<sqlx::Postgres, MainDB, Post> {
 struct MainDB;
 
 # async fn example() -> Result<(), sqlx::Error> {
-let pool = SqlPool::from_pool::<MainDB>(pg_pool);
+let db = SqlDB::from_pool::<MainDB>(pg_pool);
 
-let user_table = pool.get_table::<User>();
-let post_table = pool.get_table::<Post>();
+let user_table = db.get_table::<User>();
+let post_table = db.get_table::<Post>();
 
 // Standard CRUD (from derive macro)
 user_table.insert(&user).await?;

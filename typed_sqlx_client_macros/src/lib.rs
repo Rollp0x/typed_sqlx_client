@@ -286,6 +286,10 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                 {
                     type Error = sqlx::Error;
 
+                    fn table_name(&self) -> &'static str {
+                        #table_name
+                    }
+
                     fn delete_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
                         async move {
                             let sql = format!("DELETE FROM {} WHERE {} = $1", #table_name, #primary_key_field);
@@ -388,6 +392,10 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                 {
                     type Error = sqlx::Error;
 
+                    fn table_name(&self) -> &'static str {
+                        #table_name
+                    }
+
                     fn delete_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
                         async move {
                             let sql = format!("DELETE FROM {} WHERE {} = ?", #table_name, #primary_key_field);
@@ -489,6 +497,10 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                     )*
                 {
                     type Error = sqlx::Error;
+
+                    fn table_name(&self) -> &'static str {
+                        #table_name
+                    }
 
                     fn delete_by_id(&self, id: &#primary_key_type) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
                         async move {

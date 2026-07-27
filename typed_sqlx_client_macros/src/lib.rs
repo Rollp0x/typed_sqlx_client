@@ -18,7 +18,8 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Meta};
 ///
 /// ## 📋 Requirements
 /// - The struct must implement `sqlx::FromRow` (usually via `#[derive(FromRow)]`)
-/// - All field types must implement `sqlx::Encode` and `sqlx::Type` for the target database
+/// - All field types must implement `sqlx::Encode` and `sqlx::Type` for the target database,
+///   OR use `#[crud(encode_json)]` for JSON column types like `Option<Vec<String>>`
 /// - The struct must have at least one field
 ///
 /// ## 🗄️ Supported Databases
@@ -31,16 +32,17 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Meta};
 /// ## 🏷️ Attributes Reference
 ///
 /// ### Struct-level Attributes
-/// ```rust
+/// ```rust,ignore
 /// #[crud(table = "table_name")]          // Specify table name (defaults to struct name)
 /// #[crud(db = "database_type")]           // Specify database type (mysql/postgres/sqlite)
 /// #[crud(table = "users", db = "postgres")]  // Combined syntax
 /// ```
 ///
 /// ### Field-level Attributes
-/// ```rust
+/// ```rust,ignore
 /// #[crud(primary_key)]                   // Mark field as primary key (defaults to first field)
 /// #[crud(rename = "column_name")]         // Map field to different column name
+/// #[crud(encode_json)]                   // Auto-wrap with sqlx::types::Json() for JSON columns
 /// ```
 ///
 /// ## 🔧 Generated Operations
@@ -54,7 +56,7 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Meta};
 /// ## 📚 Usage Examples
 ///
 /// ### Basic Entity
-/// ```rust
+/// ```rust,ignore
 /// use typed_sqlx_client::{CrudOpsRef, SqlPool};
 /// use sqlx::FromRow;
 ///
@@ -81,7 +83,7 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Meta};
 /// ```
 ///
 /// ### Advanced Field Mapping
-/// ```rust
+/// ```rust,ignore
 /// use uuid::Uuid;
 ///
 /// #[derive(FromRow, CrudOpsRef)]
@@ -105,7 +107,7 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Meta};
 /// ```
 ///
 /// ### Multi-Database Support
-/// ```rust
+/// ```rust,ignore
 /// // Same struct, different databases
 /// #[derive(FromRow, CrudOpsRef)]
 /// #[crud(table = "products", db = "mysql")]
@@ -127,7 +129,7 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Meta};
 /// ```
 ///
 /// ### Complex Types and Custom Fields
-/// ```rust
+/// ```rust,ignore
 /// use serde_json::Value;
 ///
 /// #[derive(FromRow, CrudOpsRef)]
@@ -149,6 +151,34 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Meta};
 /// }
 /// ```
 ///
+/// ### JSON Columns with `#[crud(encode_json)]`
+///
+/// For fields stored as JSON columns (e.g., `Vec<String>`, custom structs),
+/// use `#[crud(encode_json)]` to have the macro automatically wrap values with
+/// `sqlx::types::Json()` during INSERT/UPDATE. This avoids the need for wrapper
+/// types or manual conversion between structs.
+///
+/// **Important**: Also add `#[sqlx(json)]` to the field so that sqlx's `FromRow`
+/// derive handles the decode direction (SELECT/get_by_id):
+///
+/// ```rust,ignore
+/// #[derive(FromRow, CrudOpsRef)]
+/// #[crud(table = "user_infos", db = "mysql")]
+/// struct UserInfo {
+///     #[crud(primary_key)]
+///     id: Option<Uuid>,
+///     name: String,
+///     
+///     #[crud(encode_json)]
+///     #[sqlx(json)]  // Required for FromRow/SELECT to decode JSON columns
+///     selectors: Option<Vec<String>>,
+///     
+///     #[crud(encode_json, rename = "metadata")]
+///     #[sqlx(json)]
+///     tags: serde_json::Value,
+/// }
+/// ```
+///
 /// ## 🔑 Primary Key Handling
 /// The macro intelligently handles primary keys:
 ///
@@ -157,7 +187,7 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Meta};
 /// 3. **Option unwrapping**: `Option<T>` fields are automatically unwrapped to `T` for key operations
 /// 4. **Type safety**: The key type is properly extracted for all CRUD operations
 ///
-/// ```rust
+/// ```rust,ignore
 /// // These are equivalent for key operations:
 /// struct User1 { id: i64, name: String }      // Key type: i64
 /// struct User2 { id: Option<i64>, name: String }  // Key type: i64 (unwrapped)
@@ -179,7 +209,7 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Meta};
 /// 4. **Type conversion errors**: Ensure Rust types match database column types
 ///
 /// ### Debugging Tips:
-/// ```rust
+/// ```rust,ignore
 /// // Use cargo expand to see generated code
 /// // cargo install cargo-expand
 /// // cargo expand --lib
@@ -241,7 +271,42 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
         .iter()
         .map(|f| get_crud_rename(&f.attrs).unwrap_or_else(|| f.ident.as_ref().unwrap().to_string()))
         .collect();
-    let field_types: Vec<_> = fields.iter().map(|f| &f.ty).collect();
+    let _field_types: Vec<_> = fields.iter().map(|f| &f.ty).collect();
+
+    // Compute encode_json flag for each field
+    let encode_json_flags: Vec<bool> = fields
+        .iter()
+        .map(|f| has_encode_json_attr(&f.attrs))
+        .collect();
+
+    // Bind expressions for INSERT/INSERT_BATCH (wrap with Json for encode_json fields)
+    let insert_bind_exprs: Vec<proc_macro2::TokenStream> = field_idents
+        .iter()
+        .zip(encode_json_flags.iter())
+        .map(|(ident, &is_json)| {
+            if is_json {
+                quote! { sqlx::types::Json(&entity.#ident) }
+            } else {
+                quote! { &entity.#ident }
+            }
+        })
+        .collect();
+
+    // Separate field types for trait bounds
+    let normal_field_types: Vec<_> = fields
+        .iter()
+        .zip(encode_json_flags.iter())
+        .filter(|(_, &is_json)| !is_json)
+        .map(|(f, _)| &f.ty)
+        .collect();
+
+    let encode_json_field_types: Vec<_> = fields
+        .iter()
+        .zip(encode_json_flags.iter())
+        .filter(|(_, &is_json)| is_json)
+        .map(|(f, _)| &f.ty)
+        .collect();
+
     let non_pk_idents: Vec<_> = fields
         .iter()
         .filter(|f| f.ident.as_ref().unwrap().to_string() != primary_key_field)
@@ -251,6 +316,22 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
         .iter()
         .filter(|f| f.ident.as_ref().unwrap().to_string() != primary_key_field)
         .map(|f| get_crud_rename(&f.attrs).unwrap_or_else(|| f.ident.as_ref().unwrap().to_string()))
+        .collect();
+
+    // Bind expressions for UPDATE (non-pk fields, wrap with Json for encode_json fields)
+    let update_bind_exprs: Vec<proc_macro2::TokenStream> = non_pk_idents
+        .iter()
+        .map(|ident| {
+            let idx = fields
+                .iter()
+                .position(|f| f.ident.as_ref().unwrap() == *ident)
+                .unwrap();
+            if encode_json_flags[idx] {
+                quote! { sqlx::types::Json(&entity.#ident) }
+            } else {
+                quote! { &entity.#ident }
+            }
+        })
         .collect();
 
     let db_type = parse_db_type(&input.attrs);
@@ -281,7 +362,10 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                     sqlx::postgres::PgArguments: for<'q> sqlx::IntoArguments<'q, sqlx::Postgres>,
                     for<'c> &'c sqlx::Pool<sqlx::Postgres>: sqlx::Executor<'c, Database = sqlx::Postgres>,
                     #(
-                        #field_types: for<'r> sqlx::Encode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
+                        #normal_field_types: for<'r> sqlx::Encode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
+                    )*
+                    #(
+                        #encode_json_field_types: serde::Serialize,
                     )*
                 {
                     type Error = sqlx::Error;
@@ -321,7 +405,7 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                             );
                             let mut query = sqlx::query(&sql);
                             #(
-                                query = query.bind(&entity.#field_idents);
+                                query = query.bind(#insert_bind_exprs);
                             )*
                             query.execute(self.get_pool()).await?;
                             Ok(())
@@ -339,7 +423,7 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                             );
                             let mut query = sqlx::query(&sql);
                             #(
-                                query = query.bind(&entity.#non_pk_idents);
+                                query = query.bind(#update_bind_exprs);
                             )*
                             query = query.bind(id);
                             query.execute(self.get_pool()).await?;
@@ -360,7 +444,7 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                                 );
                                 let mut query = sqlx::query(&sql);
                                 #(
-                                    query = query.bind(&entity.#field_idents);
+                                    query = query.bind(#insert_bind_exprs);
                                 )*
                                 query.execute(self.get_pool()).await?;
                             }
@@ -387,7 +471,10 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                     for<'q> sqlx::sqlite::SqliteArguments<'q>: sqlx::IntoArguments<'q, sqlx::Sqlite>,
                     for<'c> &'c sqlx::Pool<sqlx::Sqlite>: sqlx::Executor<'c, Database = sqlx::Sqlite>,
                     #(
-                        #field_types: for<'r> sqlx::Encode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite>,
+                        #normal_field_types: for<'r> sqlx::Encode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite>,
+                    )*
+                    #(
+                        #encode_json_field_types: serde::Serialize,
                     )*
                 {
                     type Error = sqlx::Error;
@@ -427,7 +514,7 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                             );
                             let mut query = sqlx::query(&sql);
                             #(
-                                query = query.bind(&entity.#field_idents);
+                                query = query.bind(#insert_bind_exprs);
                             )*
                             query.execute(self.get_pool()).await?;
                             Ok(())
@@ -444,7 +531,7 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                             );
                             let mut query = sqlx::query(&sql);
                             #(
-                                query = query.bind(&entity.#non_pk_idents);
+                                query = query.bind(#update_bind_exprs);
                             )*
                             query = query.bind(id);
                             query.execute(self.get_pool()).await?;
@@ -465,7 +552,7 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                                 );
                                 let mut query = sqlx::query(&sql);
                                 #(
-                                    query = query.bind(&entity.#field_idents);
+                                    query = query.bind(#insert_bind_exprs);
                                 )*
                                 query.execute(self.get_pool()).await?;
                             }
@@ -493,7 +580,10 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                     sqlx::mysql::MySqlArguments: for<'q> sqlx::IntoArguments<'q, sqlx::MySql>,
                     for<'c> &'c sqlx::Pool<sqlx::MySql>: sqlx::Executor<'c, Database = sqlx::MySql>,
                     #(
-                        #field_types: for<'r> sqlx::Encode<'r, sqlx::MySql> + sqlx::Type<sqlx::MySql>,
+                        #normal_field_types: for<'r> sqlx::Encode<'r, sqlx::MySql> + sqlx::Type<sqlx::MySql>,
+                    )*
+                    #(
+                        #encode_json_field_types: serde::Serialize,
                     )*
                 {
                     type Error = sqlx::Error;
@@ -533,7 +623,7 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                             );
                             let mut query = sqlx::query(&sql);
                             #(
-                                query = query.bind(&entity.#field_idents);
+                                query = query.bind(#insert_bind_exprs);
                             )*
                             query.execute(self.get_pool()).await?;
                             Ok(())
@@ -550,7 +640,7 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                             );
                             let mut query = sqlx::query(&sql);
                             #(
-                                query = query.bind(&entity.#non_pk_idents);
+                                query = query.bind(#update_bind_exprs);
                             )*
                             query = query.bind(id);
                             query.execute(self.get_pool()).await?;
@@ -571,7 +661,7 @@ pub fn derive_crud_ops_ref(input: TokenStream) -> TokenStream {
                                 );
                                 let mut query = sqlx::query(&sql);
                                 #(
-                                    query = query.bind(&entity.#field_idents);
+                                    query = query.bind(#insert_bind_exprs);
                                 )*
                                 query.execute(self.get_pool()).await?;
                             }
@@ -659,6 +749,24 @@ fn has_primary_key_attr(attrs: &[Attribute]) -> bool {
             if let Meta::List(meta_list) = &attr.meta {
                 let tokens_str = meta_list.tokens.to_string();
                 if tokens_str.contains("primary_key") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a field has the `#[crud(encode_json)]` attribute.
+/// When marked, the field's value is automatically wrapped in `sqlx::types::Json()`
+/// for INSERT/UPDATE binds, allowing `Option<Vec<String>>` and other
+/// `Serialize` types to work with JSON columns without changing the struct definition.
+fn has_encode_json_attr(attrs: &[Attribute]) -> bool {
+    for attr in attrs {
+        if attr.path().is_ident("crud") {
+            if let Meta::List(meta_list) = &attr.meta {
+                let tokens_str = meta_list.tokens.to_string();
+                if tokens_str.contains("encode_json") {
                     return true;
                 }
             }

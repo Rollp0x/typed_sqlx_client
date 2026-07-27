@@ -21,7 +21,7 @@ A type-safe, extensible Rust library for managing multiple SQL databases and tab
 Add to your `Cargo.toml`:
 ```toml
 [dependencies]
-typed_sqlx_client = "0.2.2"
+typed_sqlx_client = "0.2.3"
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "uuid"] }
 ```
 
@@ -77,6 +77,27 @@ async fn main() -> Result<(), sqlx::Error> {
     Ok(())
 }
 ```
+
+## 📋 What's New in v0.2.3
+
+### New: `#[crud(encode_json)]` for JSON Columns
+- Fields marked with `#[crud(encode_json)]` are automatically wrapped with `sqlx::types::Json()` during INSERT/UPDATE, so types like `Option<Vec<String>>` or any `Serialize` type work with JSON columns without wrapper structs.
+- Pair with `#[sqlx(json)]` for seamless `FromRow` (SELECT) support.
+
+```rust
+#[derive(FromRow, CrudOpsRef)]
+#[crud(table = "user_infos", db = "mysql")]
+struct UserInfo {
+    #[crud(primary_key)]
+    id: Option<Uuid>,
+    name: String,
+    #[crud(encode_json)]   // Auto Json() for INSERT/UPDATE
+    #[sqlx(json)]           // sqlx native JSON for SELECT
+    selectors: Option<Vec<String>>,
+}
+```
+
+---
 
 ## 📋 What's New in v0.2.2
 

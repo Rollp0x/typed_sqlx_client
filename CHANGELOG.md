@@ -5,7 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2025-07-27
 
+### Added
+- **`#[crud(encode_json)]` field attribute**: Automatically wraps field values with `sqlx::types::Json()` during INSERT/UPDATE, allowing `Option<Vec<String>>`, `serde_json::Value`, and any `Serialize` types to work with JSON columns without changing the struct field type or creating wrapper structs.
+- New `serde` dependency to support the `Serialize` trait bound for `encode_json` fields.
+- New example `string_vec_crud` demonstrating JSON column CRUD with `Option<Vec<String>>`.
+
+### Changed
+- Updated documentation with `encode_json` usage patterns, including the recommended pairing with `#[sqlx(json)]` for full encode/decode support.
+
+---
 ## [0.2.2] - 2025-11-18
 
 ### Added

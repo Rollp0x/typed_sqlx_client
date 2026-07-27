@@ -2549,7 +2549,7 @@ dependencies = [
 
 [[package]]
 name = "typed_sqlx_client"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "actix-web",
  "ethereum-mysql",
@@ -2563,7 +2563,7 @@ dependencies = [
 
 [[package]]
 name = "typed_sqlx_client_macros"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "proc-macro2",
  "quote",

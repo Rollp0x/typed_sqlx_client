@@ -22,6 +22,7 @@
 //! This library evolved from v0.1.1 with significant improvements:
 //! - **Removed** the old `CrudOps` trait
 //! - **Added** the `#[derive(CrudOpsRef)]` macro for automatic CRUD implementation
+//! - **Added** `#[crud(encode_json)]` field attribute for seamless JSON column support
 //! - **Enhanced** SELECT queries with type-safe `execute_select_as_only<T>()` method
 //! - **Direct implementation** of `SelectOnlyQuery` on `SqlTable` (no macro required)
 //!
@@ -30,6 +31,7 @@
 //! - **🔒 Type-safe wrappers**: Generic `SqlDB<P, DB>` and `SqlTable<P, DB, Table>` for compile-time safety
 //! - **🗄️ Multi-database support**: MySQL, PostgreSQL, and SQLite with unified API
 //! - **⚡ Auto-generated CRUD**: `#[derive(CrudOpsRef)]` macro creates all CRUD operations instantly
+//! - **📦 JSON column support**: `#[crud(encode_json)]` + `#[sqlx(json)]` for Vec/String/Value JSON columns
 //! - **🔍 Dual query modes**:
 //!   - `execute_select_only()`: Dynamic JSON results for unknown schemas
 //!   - `execute_select_as_only<T>()`: Type-safe deserialization to structs/tuples

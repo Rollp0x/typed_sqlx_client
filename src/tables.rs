@@ -1,6 +1,7 @@
 use crate::traits::SelectOnlyQuery;
 use sqlx::{
-    database::Database, Column, ColumnIndex, Decode, Executor, IntoArguments, Pool, Row, Type,
+    database::Database, Column, ColumnIndex, Decode, Execute, Executor, IntoArguments, Pool, Row,
+    Type,
 };
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -475,39 +476,7 @@ where
         }
         let pool = self.get_pool();
         let rows = sqlx::query(query).fetch_all(pool).await?;
-        let columns = if let Some(row) = rows.first() {
-            row.columns()
-                .iter()
-                .map(|c| c.name().to_string())
-                .collect::<Vec<_>>()
-        } else {
-            vec![]
-        };
-
-        let mut result = Vec::new();
-        for row in rows {
-            let mut json_row = serde_json::Map::new();
-            for column in &columns {
-                let json_value = if let Ok(v) = row.try_get::<i64, _>(column.as_str()) {
-                    serde_json::json!(v)
-                } else if let Ok(v) = row.try_get::<f64, _>(column.as_str()) {
-                    serde_json::json!(v)
-                } else if let Ok(v) = row.try_get::<bool, _>(column.as_str()) {
-                    serde_json::json!(v)
-                } else if let Ok(s) = row.try_get::<String, _>(column.as_str()) {
-                    serde_json::from_str(&s).unwrap_or(serde_json::json!(s))
-                } else if let Ok(v) = row.try_get::<Vec<u8>, _>(column.as_str()) {
-                    serde_json::json!(v)
-                } else if let Ok(v) = row.try_get::<i32, _>(column.as_str()) {
-                    serde_json::json!(v)
-                } else {
-                    serde_json::json!(null)
-                };
-                json_row.insert(column.clone(), json_value);
-            }
-            result.push(serde_json::Value::Object(json_row));
-        }
-        Ok(result)
+        Ok(rows_to_json(rows))
     }
 
     async fn execute_select_as_only<T>(&self, query: &str) -> Result<Vec<T>, Self::MError>
@@ -524,4 +493,89 @@ where
         let values: Vec<T> = sqlx::query_as(query).fetch_all(pool).await?;
         Ok(values)
     }
+
+    async fn execute_select_query<'q, A>(
+        &self,
+        query: sqlx::query::Query<'q, P, A>,
+    ) -> Result<Self::Output, Self::MError>
+    where
+        A: Send + sqlx::IntoArguments<'q, P> + 'q,
+    {
+        let trimmed_query = query.sql().trim().to_lowercase();
+        if !trimmed_query.starts_with("select") {
+            return Err(sqlx::Error::InvalidArgument(
+                "Only SELECT queries are allowed".into(),
+            ));
+        }
+        let pool = self.get_pool();
+        let rows = query.fetch_all(pool).await?;
+        Ok(rows_to_json(rows))
+    }
+
+    async fn execute_select_as_query<'q, A, T>(
+        &self,
+        query: sqlx::query::QueryAs<'q, P, T, A>,
+    ) -> Result<Vec<T>, Self::MError>
+    where
+        A: Send + sqlx::IntoArguments<'q, P> + 'q,
+        T: for<'r> sqlx::FromRow<'r, <P as sqlx::Database>::Row> + Send + Unpin + 'static,
+    {
+        let trimmed_query = query.sql().trim().to_lowercase();
+        if !trimmed_query.starts_with("select") {
+            return Err(sqlx::Error::InvalidArgument(
+                "Only SELECT queries are allowed".into(),
+            ));
+        }
+        let pool = self.get_pool();
+        let values: Vec<T> = query.fetch_all(pool).await?;
+        Ok(values)
+    }
+}
+
+fn rows_to_json<P>(rows: Vec<P::Row>) -> Vec<serde_json::Value>
+where
+    P: Database,
+    P::Row: Row<Database = P>,
+    P::Column: Column<Database = P>,
+    for<'r> &'r str: ColumnIndex<P::Row>,
+    for<'r> i64: Type<P> + Decode<'r, P>,
+    for<'r> f64: Type<P> + Decode<'r, P>,
+    for<'r> i32: Type<P> + Decode<'r, P>,
+    for<'r> bool: Type<P> + Decode<'r, P>,
+    for<'r> String: Type<P> + Decode<'r, P>,
+    for<'r> Vec<u8>: Type<P> + Decode<'r, P>,
+{
+    let columns = if let Some(row) = rows.first() {
+        row.columns()
+            .iter()
+            .map(|c| c.name().to_string())
+            .collect::<Vec<_>>()
+    } else {
+        vec![]
+    };
+
+    let mut result = Vec::new();
+    for row in rows {
+        let mut json_row = serde_json::Map::new();
+        for column in &columns {
+            let json_value = if let Ok(v) = row.try_get::<i64, _>(column.as_str()) {
+                serde_json::json!(v)
+            } else if let Ok(v) = row.try_get::<f64, _>(column.as_str()) {
+                serde_json::json!(v)
+            } else if let Ok(v) = row.try_get::<bool, _>(column.as_str()) {
+                serde_json::json!(v)
+            } else if let Ok(s) = row.try_get::<String, _>(column.as_str()) {
+                serde_json::from_str(&s).unwrap_or(serde_json::json!(s))
+            } else if let Ok(v) = row.try_get::<Vec<u8>, _>(column.as_str()) {
+                serde_json::json!(v)
+            } else if let Ok(v) = row.try_get::<i32, _>(column.as_str()) {
+                serde_json::json!(v)
+            } else {
+                serde_json::json!(null)
+            };
+            json_row.insert(column.clone(), json_value);
+        }
+        result.push(serde_json::Value::Object(json_row));
+    }
+    result
 }

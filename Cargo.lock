@@ -2549,7 +2549,7 @@ dependencies = [
 
 [[package]]
 name = "typed_sqlx_client"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "actix-web",
  "ethereum-mysql",

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-09-01
+
+### Added
+- `SelectOnlyQuery` trait now provides `execute_select_query` and `execute_select_as_query`, accepting pre-built sqlx `Query` / `QueryAs` objects for safe, parameterized SELECT queries (e.g. `WHERE department = $1`) without `format!` string interpolation.
+- Both methods keep the existing "SELECT only" validation.
+- Extracted a shared `rows_to_json` helper to deduplicate the JSON row-conversion logic between `execute_select_only` and `execute_select_query`.
+
+---
 ## [0.2.3] - 2025-07-27
 
 ### Added

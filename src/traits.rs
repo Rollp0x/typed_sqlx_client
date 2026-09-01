@@ -483,4 +483,63 @@ pub trait SelectOnlyQuery<P: sqlx::Database> {
     ) -> impl Future<Output = Result<Vec<T>, Self::MError>> + Send
     where
         T: for<'r> sqlx::FromRow<'r, <P as sqlx::Database>::Row> + Send + Unpin + 'static;
+
+    /// Execute a parameterized SELECT query and return results as JSON values.
+    ///
+    /// Unlike [`execute_select_only`](Self::execute_select_only), this method accepts a
+    /// pre-built [`sqlx::query::Query`] with bound arguments, enabling safe parameter
+    /// binding for dynamic `WHERE` clauses without manual string interpolation.
+    ///
+    /// ## Arguments
+    /// * `query` - A `sqlx::query::Query` built with [`sqlx::query`] and optional `.bind()` calls.
+    ///
+    /// ## Example
+    /// ```rust
+    /// # use typed_sqlx_client::SelectOnlyQuery;
+    /// # async fn example(table: impl SelectOnlyQuery<sqlx::Postgres, MError = sqlx::Error, Output = Vec<serde_json::Value>>) -> Result<(), sqlx::Error> {
+    /// let department = "engineering";
+    /// let results = table.execute_select_query(
+    ///     sqlx::query::<sqlx::Postgres>("SELECT name, age FROM users WHERE department = $1")
+    ///         .bind(department)
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn execute_select_query<'q, A>(
+        &self,
+        query: sqlx::query::Query<'q, P, A>,
+    ) -> impl Future<Output = Result<Self::Output, Self::MError>> + Send
+    where
+        A: Send + sqlx::IntoArguments<'q, P> + 'q;
+
+    /// Execute a parameterized SELECT query and return strongly-typed results.
+    ///
+    /// Unlike [`execute_select_as_only`](Self::execute_select_as_only), this method accepts a
+    /// pre-built [`sqlx::query::QueryAs`] with bound arguments, enabling safe parameter
+    /// binding for dynamic `WHERE` clauses without manual string interpolation.
+    ///
+    /// ## Arguments
+    /// * `query` - A `sqlx::query::QueryAs` built with [`sqlx::query_as`] and optional `.bind()` calls.
+    ///
+    /// ## Example
+    /// ```rust
+    /// # use typed_sqlx_client::SelectOnlyQuery;
+    /// # use sqlx::FromRow;
+    /// # #[derive(FromRow)] struct User { id: i64, name: String }
+    /// # async fn example(table: impl SelectOnlyQuery<sqlx::Postgres, MError = sqlx::Error>) -> Result<(), sqlx::Error> {
+    /// let department = "engineering";
+    /// let users: Vec<User> = table.execute_select_as_query(
+    ///     sqlx::query_as::<sqlx::Postgres, User>("SELECT * FROM users WHERE department = $1")
+    ///         .bind(department)
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn execute_select_as_query<'q, A, T>(
+        &self,
+        query: sqlx::query::QueryAs<'q, P, T, A>,
+    ) -> impl Future<Output = Result<Vec<T>, Self::MError>> + Send
+    where
+        A: Send + sqlx::IntoArguments<'q, P> + 'q,
+        T: for<'r> sqlx::FromRow<'r, <P as sqlx::Database>::Row> + Send + Unpin + 'static;
 }

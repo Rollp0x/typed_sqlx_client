@@ -17,7 +17,7 @@ A type-safe, extensible Rust library for managing multiple SQL databases and tab
 
 ```toml
 [dependencies]
-typed_sqlx_client = "0.2.4"
+typed_sqlx_client = "0.2.5"
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio"] }
 ```
 

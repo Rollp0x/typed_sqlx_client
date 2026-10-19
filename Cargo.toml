@@ -1,6 +1,6 @@
 [package]
 name = "typed_sqlx_client"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 authors = ["Rollp0x <zkrollp@gmail.com>"]
 description = "Type-safe, extensible Rust library for managing multiple SQL databases and tables with sqlx."
@@ -23,6 +23,10 @@ typed_sqlx_client_macros = { version = "0.2.3", path = "./typed_sqlx_client_macr
 actix-web = "4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 sqlx = {version = "0.8.0", features=["mysql","sqlite","postgres","uuid","macros","runtime-tokio"]}
-ethereum-mysql = "3.0.0"
+alloy = "2.5.0"
+# The `alloy` facade does not re-export alloy-primitives' `sqlx` feature,
+# so enable it on alloy-primitives directly. It targets sqlx-core 0.8, which
+# matches the sqlx 0.8 used by this crate.
+alloy-primitives = { version = "1.7.3", features = ["sqlx"] }
 uuid = {version = "1.10.0", features = ["v4","serde"]}
 serde = "1.0"

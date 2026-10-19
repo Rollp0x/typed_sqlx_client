@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-10-19
+
+### Changed
+- Examples now use `alloy::primitives::Address` instead of
+  `ethereum-mysql::SqlAddress`.
+  - The `alloy` facade does not re-export alloy-primitives' `sqlx` feature;
+    enable it directly with
+    `alloy-primitives = { version = "1.7.3", features = ["sqlx"] }`.
+    That integration targets `sqlx-core 0.8`, matching this crate's sqlx 0.8
+    dependency.
+  - Ethereum address columns are now `BINARY(20)` on MySQL/SQLite and `BYTEA`
+    on PostgreSQL.
+- sqlx remains at 0.8: alloy's SQLx integration still depends on
+  `sqlx-core 0.8`, so `alloy::primitives::Address` cannot be used with sqlx 0.9
+  without an adapter type.
+
 ## [0.2.4] - 2026-09-01
 
 ### Added

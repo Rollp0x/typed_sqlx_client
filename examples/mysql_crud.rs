@@ -1,4 +1,4 @@
-use ethereum_mysql::{sqladdress, SqlAddress};
+use alloy::primitives::{address, Address};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, MySqlPool};
 use typed_sqlx_client::{CrudOpsRef, SelectOnlyQuery, SqlPool};
@@ -15,7 +15,7 @@ pub struct UserInfo {
     pub is_active: bool,
     #[crud(rename = "address")]
     #[sqlx(rename = "address")]
-    pub user_address: SqlAddress,
+    pub user_address: Address,
 }
 pub struct TestDB;
 
@@ -37,7 +37,7 @@ async fn main() {
             email VARCHAR(255) NOT NULL,
             age INT,
             is_active BOOLEAN NOT NULL,
-            address VARCHAR(42) NOT NULL
+            address BINARY(20) NOT NULL
         )",
     )
     .execute(user_info_table.get_pool())
@@ -50,7 +50,7 @@ async fn main() {
         email: "alice@example.com".to_string(),
         age: Some(30),
         is_active: true,
-        user_address: sqladdress!("0x1234567890abcdef1234567890abcdef12345678"),
+        user_address: address!("0x1234567890abcdef1234567890abcdef12345678"),
     };
     user_info_table.insert(&user_info).await.unwrap();
     let sql = "select * from user_infos";
@@ -86,7 +86,7 @@ async fn main() {
                     email: "bob@example.com".to_string(),
                     age: Some(25),
                     is_active: true,
-                    user_address: sqladdress!("0x0000abcdefabcdefabcdefabcdefabcdefabcdef"),
+                    user_address: address!("0x0000abcdefabcdefabcdefabcdefabcdefabcdef"),
                 };
                 let user_infos = vec![user_info, user1_info];
                 user_info_table.insert_batch(&user_infos).await.unwrap();
